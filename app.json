@@ -5,26 +5,62 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "yassdrc",
+    "scheme": "yassdrc",                     
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yass.drc",    
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSExceptionDomains": {
+            "fsbehwyhsfojqxrfczdu.supabase.co": {
+              "NSIncludesSubdomains": true,
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSExceptionRequiresForwardSecrecy": false
+            }
+          }
+        }
+      }
     },
+
     "android": {
+      "package": "com.yass.drc",              
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "intentFilters": [                      
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "yassdrc"
+            },
+            {
+              "scheme": "https",
+              "host": "yassdrc.page.link",      
+              "pathPrefix": "/"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "edgeToEdgeEnabled": true
     },
+
     "web": {
       "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
+
     "plugins": [
+      "expo-barcode-scanner",
       "expo-router",
+      
       [
         "expo-splash-screen",
         {
@@ -33,8 +69,17 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
+      ],
+
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "L'application a besoin d'accéder à vos photos",
+          "cameraPermission": "L'application a besoin d'accéder à votre caméra"
+        }
       ]
     ],
+
     "experiments": {
       "typedRoutes": true
     }
