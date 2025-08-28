@@ -1,0 +1,59 @@
+ const WORKER_URL = 'https://yass-webhook.israelntalu328.workers.dev';
+  const handleInitiatePayment = async (phoneNumber: string, provider: string) => {
+  if (!authUser?.id) return;
+  setLoading(prev => ({ ...prev, payment: true }));
+  
+  try {
+    // Appel à l'API Pawapay via notre Worker Cloudflare
+    const response = await fetch(`${WORKER_URL}/initiate-deposit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        phoneNumber,
+        provider,
+        amount: subscriptionPrice,
+        currency: 'CDF'
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Échec du paiement');
+    }
+
+    // Paiement réussi
+    await updateDoc(doc(db, 'users', authUser.id), {
+      paymentStatus: 'success',
+      paymentPhoneNumber: phoneNumber,
+      selectedProvider: provider,
+      isSellerVerified: true,
+      subscriptionExpiry: Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)) // 30 jours
+    });
+
+    Alert.alert('Paiement réussi', 'Vous êtes maintenant un vendeur vérifié!');
+ } catch (error) {
+  console.error("Erreur de paiement: ", error);
+  let errorMessage = 'Impossible de lancer le paiement.';
+  
+  if (error instanceof Error) {
+    errorMessage = error.message;
+  } else if (typeof error === 'string') {
+    errorMessage = error;
+  }
+  
+  Alert.alert('Erreur', errorMessage);
+  await updateDoc(doc(db, 'users', authUser.id), { paymentStatus: 'failed' });
+} finally {
+  setLoading(prev => ({ ...prev, payment: false }));
+}
+};
+
+
+
+
+
+
+fonction pour init un paiement 

@@ -4,10 +4,11 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   ActivityIndicator,
   ScrollView,
   Platform,
+  KeyboardAvoidingView,
+  SafeAreaView,
 } from 'react-native';
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
@@ -15,185 +16,122 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function Login() {
-  const { user, login, loading: authLoading, error: authError } = useAuth();
+  const { authUser, login, loading: authLoading, error: authError, setError } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   // Rediriger automatiquement si l'utilisateur est déjà connecté
   useEffect(() => {
-    if (user) {
+    if (authUser) {
       router.replace('/home');
     }
-  }, [user]);
+  }, [authUser]);
+  
+  // Effacer l'erreur lors du démontage du composant
+  useEffect(() => {
+    return () => {
+      setError(null);
+    };
+  }, []);
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert("Champs requis", "Veuillez saisir votre email et votre mot de passe.");
+      // Utilisez l'état d'erreur du contexte pour afficher un message
+      setError("Veuillez saisir votre email et votre mot de passe.");
       return;
     }
 
     try {
-      const success = await login(email, password);
-      if (success) {
-        // La redirection est gérée par le useEffect ci-dessus
-      }
+      await login(email, password);
     } catch (err) {
       console.error("Erreur inattendue:", err);
     }
   };
 
   const handleGoToRegister = () => {
-    router.push('/register');
+    router.replace('/register');
   };
 
-  // Afficher un écran de chargement pendant la vérification de la session
-  if (authLoading && !authError && !email && !password) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6C63FF" />
-        <Text style={styles.loadingText}>Vérification de la session...</Text>
-      </View>
-    );
-  }
-
   return (
-    <ScrollView
-      contentContainerStyle={styles.scrollContainer}
-      keyboardShouldPersistTaps="handled"
-    >
-      <View style={styles.headerContainer}>
-        <View style={styles.headerContent}>
-          <Ionicons name="lock-closed-outline" size={80} color="#6C63FF" />
-          <Text style={styles.title}>Bienvenue !</Text>
-          <Text style={styles.subtitle}>Connectez-vous à votre compte</Text>
-        </View>
-      </View>
-
-      <View style={styles.form}>
-        {authError && (
-          <Text style={styles.errorText}>{authError}</Text>
-        )}
-
-        <View style={styles.inputGroup}>
-          <Ionicons name="mail-outline" size={20} color="#888" style={styles.icon} />
-          <TextInput
-            placeholder="Email"
-            value={email}
-            onChangeText={setEmail}
-            style={styles.input}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            placeholderTextColor="#888"
-          />
-        </View>
-
-        <View style={styles.inputGroup}>
-          <Ionicons name="lock-closed-outline" size={20} color="#888" style={styles.icon} />
-          <TextInput
-            placeholder="Mot de passe"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-            style={styles.input}
-            placeholderTextColor="#888"
-          />
-        </View>
-
-        <TouchableOpacity
-          style={styles.loginButton}
-          onPress={handleLogin}
-          disabled={authLoading}
-        >
-          {authLoading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Se connecter</Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.forgotPasswordButton}
-          onPress={() => router.push('/')}
-        >
-          <Text style={styles.forgotPasswordText}>Mot de passe oublié ?</Text>
-        </TouchableOpacity>
-
-        <View style={styles.separatorContainer}>
-          <View style={styles.separatorLine} />
-          <Text style={styles.separatorText}>OU</Text>
-          <View style={styles.separatorLine} />
-        </View>
-
-        <TouchableOpacity 
-          style={styles.registerLinkButton} 
-          onPress={handleGoToRegister}
-          disabled={authLoading}
-        >
-          <Text style={styles.registerLinkText}>Créer un nouveau compte</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <View style={styles.card}>
+            <Text style={styles.title}>Connexion</Text>
+            {authError && <Text style={styles.errorText}>{authError}</Text>}
+            <View style={styles.inputGroup}>
+              <Ionicons name="mail-outline" size={20} color="#666" style={styles.icon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Email"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={email}
+                onChangeText={setEmail}
+              />
+            </View>
+            <View style={styles.inputGroup}>
+              <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.icon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Mot de passe"
+                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
+              />
+            </View>
+            <TouchableOpacity
+              style={styles.loginButton}
+              onPress={handleLogin}
+              disabled={authLoading}
+            >
+              {authLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Se connecter</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.forgotPasswordButton}>
+              <Text style={styles.forgotPasswordText}>Mot de passe oublié ?</Text>
+            </TouchableOpacity>
+            <View style={styles.separatorContainer}>
+              <View style={styles.separatorLine} />
+              <Text style={styles.separatorText}>OU</Text>
+              <View style={styles.separatorLine} />
+            </View>
+            <TouchableOpacity style={styles.registerButton} onPress={handleGoToRegister}>
+              <Text style={styles.registerButtonText}>Créer un nouveau compte</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContainer: {
-    flexGrow: 1,
-    backgroundColor: '#F7F8FA',
-    justifyContent: 'center',
-    paddingBottom: 30,
-  },
-  loadingContainer: {
+  safeArea: {
     flex: 1,
+    backgroundColor: '#fff',
+  },
+  container: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F7F8FA',
+    padding: 20,
+    backgroundColor: '#fff',
   },
-  loadingText: {
-    marginTop: 20,
-    color: '#6C63FF',
-    fontSize: 16,
-  },
-  headerContainer: {
-    backgroundColor: '#FFFFFF',
+  card: {
     width: '100%',
-    paddingTop: Platform.OS === 'ios' ? 60 : 30,
-    paddingBottom: 40,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.05,
-    shadowRadius: 15,
-    elevation: 8,
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  headerContent: {
-    alignItems: 'center',
-    paddingHorizontal: 25,
-    width: '100%',
-  },
-  title: {
-    fontSize: 34,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 15,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 18,
-    color: '#777',
-    marginTop: 8,
-    textAlign: 'center',
-    lineHeight: 25,
-  },
-  form: {
-    width: '90%',
-    alignSelf: 'center',
-    backgroundColor: '#FFFFFF',
+    maxWidth: 400,
+    backgroundColor: '#fff',
     borderRadius: 15,
     padding: 25,
     shadowColor: '#000',
@@ -201,6 +139,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 15,
     elevation: 8,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 25,
+    textAlign: 'center',
   },
   errorText: {
     color: '#FF6347',
@@ -260,28 +205,24 @@ const styles = StyleSheet.create({
   separatorLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#E0E0E0',
+    backgroundColor: '#e0e0e0',
   },
   separatorText: {
-    marginHorizontal: 15,
-    color: '#A0A0A0',
+    marginHorizontal: 10,
+    color: '#888',
     fontSize: 14,
-    fontWeight: '500',
   },
-  registerLinkButton: {
-    backgroundColor: '#33CC66',
+  registerButton: {
     paddingVertical: 16,
     borderRadius: 10,
     alignItems: 'center',
-    shadowColor: '#33CC66',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 5,
+    borderWidth: 2,
+    borderColor: '#E0E0E0',
+    backgroundColor: '#fff',
   },
-  registerLinkText: {
-    color: '#fff',
-    fontSize: 18,
+  registerButtonText: {
+    color: '#6C63FF',
+    fontSize: 16,
     fontWeight: 'bold',
   },
 });

@@ -17,6 +17,8 @@ export interface ProductData {
   images: string[];
   sellerId: string;
   star?: number;
+  sellerName: string;
+  sellerPhotoUrl: string;
   createdAt?: any;
   updatedAt?: any;
   sellerInfo?: SellerInfo; // <-- Ajouté ici

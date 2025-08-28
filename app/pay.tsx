@@ -1,138 +1,312 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useAuth } from '@/context/AuthContext';
+import { db } from '@/firebase/config';
+import { Feather, Ionicons } from '@expo/vector-icons';
+import * as Linking from 'expo-linking';
+import * as Location from 'expo-location';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { addDoc, collection, doc, getDoc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View,
-  Text,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  PermissionsAndroid,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  Share,
   StyleSheet,
+  Switch,
+  Text,
   TextInput,
   TouchableOpacity,
-  SafeAreaView,
-  Alert,
-  ActivityIndicator,
-  ScrollView,
-  Platform,
-  Image,
-  Dimensions,
-  Switch,
-  Modal,
-  FlatList,
-  KeyboardAvoidingView,
+  View
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { doc, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore';
-import { db } from '@/firebase/config';
-import { useAuth } from '@/context/AuthContext';
-import WebView from 'react-native-webview';
-import * as Location from 'expo-location';
+import SmsListener from 'react-native-android-sms-listener';
+import { WebView } from 'react-native-webview';
 
-// --- INTERFACES & TYPES (1. Définition des types pour un code plus robuste) ---
+// Interfaces et constantes
 interface MapCoordinates {
   latitude: number;
   longitude: number;
 }
-
 interface SellerInfo {
   email: string;
   name?: string;
-  photoBase64?: string | null;
-  phoneNumber?: string; // Le numéro de téléphone du vendeur
+  photoUrl?: string;
+  phoneNumber?: string;
   shopName?: string;
 }
-
+interface SmsMessage {
+  body: string;
+  address: string;
+  date: number;
+}
 interface OrderItem {
   name: string;
   quantity: number;
   price: number;
-  photoUrl?: string;
+  imageUrl?: string;
 }
-
 interface PromoCode {
   code: string;
   discountPercentage: number;
 }
 
-// --- CONSTANTES & LOGIQUE MÉTIER ---
 const PAWAPAY_WEBHOOK_URL = 'https://yass-webhook.israelntalu328.workers.dev';
-const APP_FEE_PERCENTAGE = 0.05;
+const APP_FEE_PERCENTAGE = 0.05; // 5% de frais de service (corrigé)
 const DELIVERY_FEE = 1000;
+const PICKUP_HOUSES = [
+  'Kananga azda',
+  'biancky',
+];
 const PROMO_CODES: PromoCode[] = [{ code: 'YASS20', discountPercentage: 20 }];
+const GOOGLE_MAPS_API_KEY = 'AIzaSyDFIO7vLUTgo-jlRT2i77uHvEqoxgJfRj4';
 
-// --- COMPOSANT MODAL DE CARTE AVEC WEBVIEW ---
+// Code HTML pour la carte dans la WebView avec recherche et marqueur personnalisé
+const htmlMapSource = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+  <meta charset="utf-8">
+  <style>
+    html, body, #map {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    #info-box {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 10px;
+        border-radius: 5px;
+        z-index: 10;
+        font-family: sans-serif;
+        max-width: 80%;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    #search-container {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 80%;
+      z-index: 10;
+    }
+    #pac-input {
+      background-color: #fff;
+      padding: 10px 15px;
+      font-size: 16px;
+      border: none;
+      border-radius: 25px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      width: 100%;
+      outline: none;
+    }
+  </style>
+  <title>Google Map</title>
+</head>
+<body>
+  <div id="search-container">
+    <input id="pac-input" type="text" placeholder="Rechercher une adresse...">
+  </div>
+  <div id="map"></div>
+  <div id="info-box">Déplacez le marqueur pour choisir votre position</div>
+  <script>
+    var map;
+    var marker;
+    var geocoder;
+    var initialLocation = { lat: -4.325, lng: 15.3222 }; // Kinshasa par défaut
+    var infoWindow = new google.maps.InfoWindow();
+    var searchBox;
+
+    function initMap() {
+      map = new google.maps.Map(document.getElementById('map'), {
+        center: initialLocation,
+        zoom: 17,
+        mapTypeId: 'hybrid',
+        disableDefaultUI: false,
+        tilt: 45,
+      });
+
+      geocoder = new google.maps.Geocoder();
+
+      // Créer un marqueur personnalisé
+      marker = new google.maps.Marker({
+        position: initialLocation,
+        map: map,
+        draggable: true,
+        icon: {
+          url: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',
+          scaledSize: new google.maps.Size(40, 40)
+        }
+      });
+
+      // Mettre à jour l'adresse lorsque le marqueur est déplacé
+      google.maps.event.addListener(marker, 'dragend', function(event) {
+        updatePosition(event.latLng);
+      });
+
+      // Mettre à jour l'adresse lors d'un clic sur la carte
+      google.maps.event.addListener(map, 'click', function(event) {
+        marker.setPosition(event.latLng);
+        updatePosition(event.latLng);
+      });
+
+      // Initialiser la boîte de recherche
+      var input = document.getElementById('pac-input');
+      searchBox = new google.maps.places.SearchBox(input);
+      map.controls[google.maps.ControlPosition.TOP_CENTER].push(input);
+
+      // Bias the SearchBox results towards current map's viewport.
+      map.addListener('bounds_changed', function() {
+        searchBox.setBounds(map.getBounds());
+      });
+
+      // Écouter les événements de recherche
+      searchBox.addListener('places_changed', function() {
+        var places = searchBox.getPlaces();
+
+        if (places.length == 0) {
+          return;
+        }
+
+        // For each place, get the icon, name and location.
+        var bounds = new google.maps.LatLngBounds();
+        places.forEach(function(place) {
+          if (!place.geometry) {
+            console.log("Returned place contains no geometry");
+            return;
+          }
+
+          if (place.geometry.viewport) {
+            bounds.union(place.geometry.viewport);
+          } else {
+            bounds.extend(place.geometry.location);
+          }
+        });
+        map.fitBounds(bounds);
+        
+        // Placer le marqueur sur le premier résultat
+        if (places[0].geometry.location) {
+          marker.setPosition(places[0].geometry.location);
+          updatePosition(places[0].geometry.location);
+        }
+      });
+
+      // Fonction pour mettre à jour la position et obtenir l'adresse
+      function updatePosition(latLng) {
+        geocoder.geocode({'location': latLng}, function(results, status) {
+          if (status === 'OK') {
+            if (results[0]) {
+              var address = results[0].formatted_address;
+              document.getElementById('info-box').innerText = address;
+              
+              // Envoyer les coordonnées et l'adresse à l'application React Native
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                latitude: latLng.lat(),
+                longitude: latLng.lng(),
+                address: address,
+                action: 'location_update'
+              }));
+            }
+          }
+        });
+      }
+
+      // Envoyer la position initiale au chargement
+      updatePosition(initialLocation);
+      
+      // Gérer les messages de l'application
+      document.addEventListener('message', function(event) {
+        var data = JSON.parse(event.data);
+        if (data.action === 'set_location') {
+          var newPos = { lat: data.latitude, lng: data.longitude };
+          map.setCenter(newPos);
+          map.setZoom(17);
+          marker.setPosition(newPos);
+          updatePosition(newPos);
+        }
+      });
+    }
+  </script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&callback=initMap&libraries=places" async defer></script>
+</body>
+</html>`;
+
+// Composant MapModal (version optimisée avec WebView)
 interface MapModalProps {
   isVisible: boolean;
   onClose: () => void;
-  onLocationSelect: (coords: MapCoordinates) => void;
+  onLocationSelect: (coords: MapCoordinates, address: string) => void;
   initialCoordinates: MapCoordinates | null;
+  onGetLocation: () => Promise<void>;
+  isGettingLocation: boolean;
 }
 
-const MapModal: React.FC<MapModalProps> = ({ isVisible, onClose, onLocationSelect, initialCoordinates }) => {
-  const [webViewRef, setWebViewRef] = useState<any>(null);
-  const [currentCoordinates, setCurrentCoordinates] = useState<MapCoordinates | null>(initialCoordinates);
+const MapModal: React.FC<MapModalProps> = ({
+  isVisible,
+  onClose,
+  onLocationSelect,
+  initialCoordinates,
+  onGetLocation,
+  isGettingLocation,
+}) => {
+  const webviewRef = useRef<WebView>(null);
+  const [tempCoordinates, setTempCoordinates] = useState<MapCoordinates | null>(initialCoordinates);
+  const [selectedAddress, setSelectedAddress] = useState('');
 
-  useEffect(() => {
-    setCurrentCoordinates(initialCoordinates);
-  }, [initialCoordinates]);
-
-  // Script pour la carte OpenStreetMap
-  const htmlContent = useMemo(() => {
-    const lat = initialCoordinates?.latitude || -4.325;
-    const lng = initialCoordinates?.longitude || 15.3222;
-    const hasInitialMarker = !!initialCoordinates;
-
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>OpenStreetMap</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-        <style>
-          body { margin: 0; padding: 0; }
-          #map { width: 100%; height: 100vh; }
-        </style>
-        <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-      </head>
-      <body>
-        <div id="map"></div>
-        <script>
-          const map = L.map('map').setView([${lat}, ${lng}], 13);
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          }).addTo(map);
-
-          let marker = null;
-          if (${hasInitialMarker}) {
-              marker = L.marker([${lat}, ${lng}]).addTo(map);
-          }
-
-          map.on('click', function(e) {
-            const coords = e.latlng;
-            if (marker) {
-              map.removeLayer(marker);
-            }
-            marker = L.marker(coords).addTo(map);
-            window.ReactNativeWebView.postMessage(JSON.stringify(coords));
-          });
-        </script>
-      </body>
-      </html>
-    `;
-  }, [initialCoordinates]);
-
-  // Gère les messages de la WebView (coordonnées cliquées)
-  const handleWebViewMessage = useCallback((event: any) => {
-    const data = JSON.parse(event.nativeEvent.data);
-    setCurrentCoordinates({ latitude: data.lat, longitude: data.lng });
-  }, []);
+  const handleWebViewMessage = (event: any) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.action === 'location_update') {
+        setTempCoordinates({
+          latitude: data.latitude,
+          longitude: data.longitude,
+        });
+        setSelectedAddress(data.address || 'Adresse en cours de chargement...');
+      }
+    } catch (error) {
+      console.error("Erreur de parsing du message de la WebView:", error);
+    }
+  };
 
   const handleConfirmLocation = () => {
-    if (currentCoordinates) {
-      onLocationSelect(currentCoordinates);
+    if (tempCoordinates) {
+      onLocationSelect(tempCoordinates, selectedAddress);
       onClose();
     } else {
       Alert.alert("Erreur", "Veuillez sélectionner un point sur la carte.");
     }
   };
+
+  const centerMapOnLocation = (coords: MapCoordinates) => {
+    if (webviewRef.current) {
+      const message = JSON.stringify({
+        action: 'set_location',
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+      });
+      webviewRef.current.postMessage(message);
+    }
+  };
+  
+  const handleGetLocationAndCenter = async () => {
+    await onGetLocation();
+  };
+
+  useEffect(() => {
+    if (initialCoordinates) {
+      setTempCoordinates(initialCoordinates);
+      centerMapOnLocation(initialCoordinates);
+    }
+  }, [initialCoordinates]);
 
   return (
     <Modal visible={isVisible} animationType="slide" onRequestClose={onClose}>
@@ -144,32 +318,54 @@ const MapModal: React.FC<MapModalProps> = ({ isVisible, onClose, onLocationSelec
           <Text style={styles.mapTitle}>Sélectionnez votre position</Text>
         </View>
         <WebView
-          ref={(ref) => setWebViewRef(ref)}
-          style={styles.map}
-          source={{ html: htmlContent }}
-          onMessage={handleWebViewMessage}
-          javaScriptEnabled={true}
+          ref={webviewRef}
           originWhitelist={['*']}
+          source={{ html: htmlMapSource }}
+          onMessage={handleWebViewMessage}
+          style={styles.mapWebView}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          startInLoadingState={true}
+          renderLoading={() => <ActivityIndicator size="large" color="#6C63FF" style={styles.loadingOverlay} />}
         />
-        <TouchableOpacity style={styles.mapConfirmButton} onPress={handleConfirmLocation}>
-          <Text style={styles.mapConfirmButtonText}>Confirmer la position</Text>
-        </TouchableOpacity>
+        <View style={styles.addressContainer}>
+          <Text style={styles.addressText} numberOfLines={2}>
+            {selectedAddress || "Sélectionnez un emplacement sur la carte"}
+          </Text>
+        </View>
+        <View style={styles.mapControls}>
+          <TouchableOpacity
+            style={styles.locationButton}
+            onPress={handleGetLocationAndCenter}
+            disabled={isGettingLocation}
+          >
+            {isGettingLocation ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Feather name="crosshair" size={24} color="#fff" />
+            )}
+            <Text style={styles.locationButtonText}>Ma position actuelle</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.mapConfirmButton} onPress={handleConfirmLocation}>
+            <Text style={styles.mapConfirmButtonText}>Confirmer la position</Text>
+          </TouchableOpacity>
+        </View>
       </SafeAreaView>
     </Modal>
   );
 };
 
-// --- COMPOSANT PRINCIPAL DE LA PAGE DE PAIEMENT (Avec 20+ fonctionnalités) ---
+// Composant principal PayScreen
 const PayScreen = () => {
   const router = useRouter();
-  const { user } = useAuth();
+  const { authUser } = useAuth();
   const params = useLocalSearchParams();
   const { orderId, totalAmount, sellerId } = params;
+  const [smsVerificationTimeout, setSmsVerificationTimeout] = useState<NodeJS.Timeout | number | null>(null);
 
-  // États pour les détails de la commande et du paiement
   const [sellerInfo, setSellerInfo] = useState<SellerInfo | null>(null);
   const [loadingSeller, setLoadingSeller] = useState(true);
-  const [phoneNumber, setPhoneNumber] = useState('243'); // Pré-rempli avec le code de la RDC
+  const [phoneNumber, setPhoneNumber] = useState('2439');
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [deliveryLocation, setDeliveryLocation] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
@@ -177,24 +373,160 @@ const PayScreen = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'initiating' | 'pending_confirmation' | 'success' | 'failed'>('idle');
   const [isDeliverySelected, setIsDeliverySelected] = useState(true);
+  const [selectedPickupHouse, setSelectedPickupHouse] = useState('');
   const [promoCode, setPromoCode] = useState('');
   const [discount, setDiscount] = useState(0);
   const [mapModalVisible, setMapModalVisible] = useState(false);
   const [selectedCoordinates, setSelectedCoordinates] = useState<MapCoordinates | null>(null);
+  const [selectedAddress, setSelectedAddress] = useState('');
+  const [currentLocation, setCurrentLocation] = useState<MapCoordinates | null>(null);
   const [paymentConfirmationModal, setPaymentConfirmationModal] = useState(false);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [orderStatus, setOrderStatus] = useState('En attente');
   const [estimatedDeliveryTime, setEstimatedDeliveryTime] = useState('45 min');
   const [isGettingLocation, setIsGettingLocation] = useState(false);
+  const [depositStatus, setDepositStatus] = useState<'PENDING' | 'PAID' | 'FAILED' | 'NOT_REQUIRED'>('PENDING');
+  const [smsPermissionGranted, setSmsPermissionGranted] = useState(false);
+  const [smsListenerActive, setSmsListenerActive] = useState(false);
+  const [shareLink, setShareLink] = useState('');
+  const [transactionStatus, setTransactionStatus] = useState<'pending'|'success'|'failed'>('pending');
+  const [showManualConfirm, setShowManualConfirm] = useState(false);
+  const [smsMessage, setSmsMessage] = useState('');
 
-  // 8. Calculs optimisés avec useMemo
   const parsedTotalAmount = useMemo(() => totalAmount ? parseFloat(totalAmount as string) : 0, [totalAmount]);
   const appFeeAmount = useMemo(() => parsedTotalAmount * APP_FEE_PERCENTAGE, [parsedTotalAmount]);
   const deliveryFee = useMemo(() => isDeliverySelected ? DELIVERY_FEE : 0, [isDeliverySelected]);
   const finalAmountBeforeDiscount = useMemo(() => parsedTotalAmount + appFeeAmount + deliveryFee, [parsedTotalAmount, appFeeAmount, deliveryFee]);
   const finalTotalAmount = useMemo(() => finalAmountBeforeDiscount - discount, [finalAmountBeforeDiscount, discount]);
+  const depositAmount = useMemo(() => isDeliverySelected ? Math.min(1000, finalTotalAmount * 0.1) : 0, [isDeliverySelected, finalTotalAmount]);
 
-  // 9. Fonction pour appliquer un code promo
+  // Générer le lien de partage
+  const generateShareLink = useCallback(() => {
+    if (!orderId) return '';
+    
+    const baseUrl = Linking.createURL('/pay');
+    const params = new URLSearchParams({
+      orderId: orderId as string,
+      totalAmount: totalAmount as string,
+      sellerId: sellerId as string,
+      shared: 'true',
+    });
+    
+    return `${baseUrl}?${params.toString()}`;
+  }, [orderId, totalAmount, sellerId]);
+
+  useEffect(() => {
+    const link = generateShareLink();
+    setShareLink(link);
+  }, [generateShareLink]);
+
+  const handleShareOrder = async () => {
+    if (!shareLink) {
+      Alert.alert('Erreur', 'Impossible de générer le lien de partage');
+      return;
+    }
+
+    try {
+      const result = await Share.share({
+        message: `Bonjour, pouvez-vous payer ma commande Yassir ? Cliquez sur ce lien: ${shareLink}`,
+        title: 'Partager le panier Yassir',
+      });
+
+      if (result.action === Share.sharedAction) {
+        // Mettre à jour Firestore pour indiquer que cette commande est partagée
+        if (orderId) {
+          await updateDoc(doc(db, 'orders', orderId as string), {
+            shared: true,
+            sharedAt: serverTimestamp(),
+          });
+        }
+      }
+    } catch (error) {
+      Alert.alert('Erreur', 'Impossible de partager le panier');
+      console.error('Erreur lors du partage:', error);
+    }
+  };
+
+  const requestSmsPermission = async () => {
+    if (Platform.OS !== 'android') return true;
+    try {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.READ_SMS,
+        {
+          title: 'Permission SMS',
+          message: 'L\'application a besoin d\'accéder à vos SMS pour vérifier le paiement',
+          buttonPositive: 'OK',
+        }
+      );
+      setSmsPermissionGranted(granted === PermissionsAndroid.RESULTS.GRANTED);
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    } catch (err) {
+      console.error('Erreur permission SMS:', err);
+      return false;
+    }
+  };
+
+  const isPaymentConfirmationSms = (smsBody: string, amount: number): boolean => {
+    const expectedAmount = amount.toFixed(2);
+    const regex = new RegExp(
+      `TID:\\s*MP\\d+.*${expectedAmount}\\s*CDF.*PAWAPAY`,
+      'i'
+    );
+    return regex.test(smsBody);
+  };
+
+  const startSmsListener = useCallback((amount: number) => {
+    if (!smsPermissionGranted) {
+      Alert.alert('Erreur', 'Permission SMS non accordée.');
+      return;
+    }
+    if (smsListenerActive) return;
+
+    setSmsListenerActive(true);
+    const subscription = SmsListener.addListener((message: SmsMessage) => {
+      const smsBody = message.body;
+      const smsDate = new Date(message.date);
+      const currentDate = new Date();
+      const timeDifference = (currentDate.getTime() - smsDate.getTime()) / 1000 / 60;
+      if (timeDifference <= 3 && isPaymentConfirmationSms(smsBody, amount)) {
+        handlePaymentConfirmation();
+        subscription.remove();
+        setSmsListenerActive(false);
+        if (smsVerificationTimeout) {
+          clearTimeout(smsVerificationTimeout);
+        }
+      }
+    });
+
+    const timeout = setTimeout(() => {
+      subscription.remove();
+      setSmsListenerActive(false);
+      Alert.alert('Timeout', 'Aucune confirmation de paiement reçue dans le délai imparti');
+      setPaymentStatus('failed');
+      if (orderId) {
+        updateDoc(doc(db, 'orders', orderId as string), { depositStatus: 'FAILED', paymentStatus: 'failed_timeout' });
+      }
+    }, 3 * 60 * 1000); // 3 minutes
+    setSmsVerificationTimeout(timeout);
+  }, [smsPermissionGranted, smsListenerActive, smsVerificationTimeout, orderId]);
+
+  const handlePaymentConfirmation = async () => {
+    if (!orderId) return;
+    try {
+      const orderRef = doc(db, 'orders', orderId as string);
+      await updateDoc(orderRef, {
+        depositStatus: 'PAID',
+        status: 'confirmed',
+        updatedAt: serverTimestamp(),
+      });
+      Alert.alert("Succès", "Paiement confirmé, commande validée !");
+      router.push(`/order-confirmation/${orderId}` as any);
+    } catch (error) {
+      console.error('Erreur confirmation paiement:', error);
+      Alert.alert("Erreur", "Une erreur est survenue lors de la confirmation du paiement.");
+    }
+  };
+
   const applyPromoCode = () => {
     const validPromo = PROMO_CODES.find(p => p.code === promoCode.toUpperCase());
     if (validPromo) {
@@ -207,7 +539,6 @@ const PayScreen = () => {
     }
   };
 
-  // 10. Fonction pour charger les infos du vendeur, mémorisée avec useCallback
   const fetchSellerInfo = useCallback(async () => {
     if (!sellerId) {
       setLoadingSeller(false);
@@ -222,8 +553,7 @@ const PayScreen = () => {
         setSellerInfo({
           email: data.email,
           name: data.name || "Vendeur Anonyme",
-          photoBase64: data.photoBase64 || null,
-          // Correction : Accès au numéro de téléphone via sellerForm
+          photoUrl: data.photoUrl || null,
           phoneNumber: data.sellerForm?.phoneNumber || null,
           shopName: data.sellerForm?.shopName || 'Boutique sans nom',
         });
@@ -235,7 +565,6 @@ const PayScreen = () => {
     }
   }, [sellerId]);
 
-  // 11. Fonction pour charger les articles de la commande
   const fetchOrderItems = useCallback(async () => {
     if (!orderId) return;
     try {
@@ -249,13 +578,47 @@ const PayScreen = () => {
             if (data.status) {
               setOrderStatus(data.status);
             }
+            if (data.depositStatus) {
+              setDepositStatus(data.depositStatus);
+            }
         }
     } catch (error) {
         console.error("Erreur lors de la récupération des articles de la commande:", error);
     }
   }, [orderId]);
 
-  // 30. Fonction pour obtenir la géolocalisation de l'utilisateur
+  useEffect(() => {
+    fetchSellerInfo();
+    fetchOrderItems();
+    requestSmsPermission();
+  }, [fetchSellerInfo, fetchOrderItems]);
+
+  useEffect(() => {
+    if (!orderId) return;
+    const unsubscribe = onSnapshot(doc(db, 'orders', orderId as string), (doc) => {
+      if (doc.exists()) {
+        const data = doc.data();
+        const currentDepositStatus = data.depositStatus as 'PENDING' | 'PAID' | 'FAILED' | 'NOT_REQUIRED';
+        setDepositStatus(currentDepositStatus || 'PENDING');
+        setOrderStatus(data.status || 'En attente');
+        
+        if (currentDepositStatus === 'PAID' || (currentDepositStatus === 'NOT_REQUIRED' && data.status === 'confirmed')) {
+          Alert.alert("Succès", "Commande confirmée ! Vous allez être redirigé vers la page de confirmation.");
+          if (smsVerificationTimeout) clearTimeout(smsVerificationTimeout);
+          if (smsListenerActive) SmsListener.removeListener(); // A vérifier avec l'API
+          router.push(`/order-confirmation/${orderId}` as any);
+        }
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      if (smsVerificationTimeout) {
+        clearTimeout(smsVerificationTimeout);
+      }
+    };
+  }, [orderId, router, smsVerificationTimeout, smsListenerActive]);
+
   const getLocation = async () => {
     setIsGettingLocation(true);
     let { status } = await Location.requestForegroundPermissionsAsync();
@@ -264,15 +627,27 @@ const PayScreen = () => {
       setIsGettingLocation(false);
       return;
     }
-
     try {
-      let location = await Location.getCurrentPositionAsync({});
+      let location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
       const coords: MapCoordinates = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
       };
       setSelectedCoordinates(coords);
-      Alert.alert("Position actuelle", `Votre position a été détectée.`);
+      setCurrentLocation(coords);
+      
+      // Récupérer l'adresse à partir des coordonnées
+      let addressResponse = await Location.reverseGeocodeAsync(coords);
+      if (addressResponse.length > 0) {
+        const address = addressResponse[0];
+        const formattedAddress = `${address.name || ''} ${address.street || ''}, ${address.city || ''}, ${address.region || ''}`;
+        setSelectedAddress(formattedAddress);
+        Alert.alert("Position actuelle", `Votre position a été détectée: ${formattedAddress}`);
+      } else {
+        Alert.alert("Position actuelle", "Votre position a été détectée avec précision.");
+      }
     } catch (error) {
       Alert.alert("Erreur", "Impossible d'obtenir la localisation actuelle.");
       console.error("Erreur de géolocalisation:", error);
@@ -281,108 +656,150 @@ const PayScreen = () => {
     }
   };
 
-  // Séparation des useEffect pour éviter les boucles infinies.
-  // 1. Un useEffect pour charger les infos du vendeur et de la commande, dépendant uniquement de leurs IDs.
-  useEffect(() => {
-    fetchSellerInfo();
-    fetchOrderItems();
-  }, [fetchSellerInfo, fetchOrderItems]);
+  const handlePhoneNumberChange = (text: string) => {
+    if (text.startsWith('2439') && text.length <= 12) {
+      setPhoneNumber(text);
+    }
+  };
 
-  // 2. Un useEffect distinct pour la géolocalisation qui ne se déclenche qu'une seule fois.
-  useEffect(() => {
-    // Si des coordonnées sont déjà sélectionnées, on ne fait rien
-    if (selectedCoordinates) return;
-    getLocation();
-  }, []); // Dépendance vide pour ne s'exécuter qu'au montage
+  const verifyTransaction = async (transactionId: string, operator: string) => {
+    // Appel à une API de vérification (à implémenter côté serveur)
+    const res = await fetch(`/api/verify-transaction?tx=${transactionId}&op=${operator}`);
+    const data = await res.json();
+    if (data.verified) {
+      setTransactionStatus('success');
+      // Envoie la commande à Firestore ici
+    } else {
+      setTransactionStatus('failed');
+      setShowManualConfirm(true);
+    }
+  };
+
+  const handleManualConfirmation = async (transactionId: string, smsMessage: string) => {
+    await addDoc(collection(db, 'manual-confirm'), {
+      transactionId,
+      smsMessage,
+      userId: authUser?.id ?? '',
+      createdAt: serverTimestamp(),
+    });
+    alert('Confirmation envoyée, nous allons vérifier votre paiement.');
+  };
 
   const handlePayment = async () => {
     if (isProcessing) return;
-
-    // Récupération automatique du numéro de téléphone du vendeur depuis l'état
     const sellerPhoneNumber = sellerInfo?.phoneNumber;
 
-    if (!phoneNumber || !selectedProvider) {
-      Alert.alert("Erreur", "Veuillez entrer votre numéro de téléphone et choisir un fournisseur.");
+    if (!phoneNumber || phoneNumber.length !== 12 || !phoneNumber.startsWith('2439')) {
+      Alert.alert("Erreur", "Veuillez entrer un numéro de téléphone valide commençant par 2439 et ayant 12 chiffres");
       return;
     }
-    if (isDeliverySelected && (!deliveryLocation || !deliveryAddress || !selectedCoordinates)) {
-      Alert.alert("Erreur", "Veuillez renseigner les détails de livraison et la position sur la carte.");
+
+    if (!selectedProvider) {
+      Alert.alert("Erreur", "Veuillez choisir un fournisseur.");
       return;
     }
-    // Vérification stricte du numéro du vendeur
+
+    if (isDeliverySelected) {
+      if (!deliveryLocation || !deliveryAddress || !selectedCoordinates) {
+        Alert.alert("Erreur", "Veuillez renseigner les détails de livraison et la position sur la carte.");
+        return;
+      }
+    } else {
+      if (!selectedPickupHouse) {
+        Alert.alert("Erreur", "Veuillez sélectionner un point de retrait.");
+        return;
+      }
+    }
+
     if (!sellerPhoneNumber) {
-        Alert.alert("Erreur", "Le numéro de téléphone du vendeur n'a pas pu être récupéré. Veuillez réessayer plus tard.");
-        console.error("Le numéro de téléphone du vendeur est manquant dans la base de données.");
+        Alert.alert("Erreur", "Le numéro de téléphone du vendeur n'a pas pu être récupéré.");
         return;
     }
-    if (!user?.id || !orderId) {
-      Alert.alert("Erreur", "Informations de commande ou d'utilisateur manquantes.");
-      return;
-    }
-    if (finalTotalAmount <= 0) {
-      Alert.alert("Erreur", "Le montant total doit être supérieur à zéro pour effectuer un paiement.");
-      return;
-    }
 
+    if (!authUser?.id || !orderId) {
+        Alert.alert("Erreur", "Informations de commande ou d'utilisateur manquantes.");
+        return;
+    }
+    
     setIsProcessing(true);
     setPaymentStatus('initiating');
-
-    // CONSEIL DE SÉCURITÉ PROFESSIONNEL :
-    // L'appel à l'API de paiement devrait idéalement être effectué depuis un serveur
-    // sécurisé (un backend). Un appel depuis le client comme ici est vulnérable
-    // à la manipulation des données (par exemple, un attaquant pourrait modifier
-    // le montant). Pour une application en production, il est CRITIQUE de
-    // router cette logique via une fonction Cloud ou une API backend.
 
     try {
       const orderRef = doc(db, 'orders', orderId as string);
 
+      // Mise à jour de la commande dans Firestore avec toutes les informations
       await updateDoc(orderRef, {
         deliveryType: isDeliverySelected ? 'delivery' : 'pickup',
-        deliveryLocation: isDeliverySelected ? deliveryLocation : 'Retrait en magasin',
+        deliveryLocation: isDeliverySelected ? deliveryLocation : selectedPickupHouse,
         deliveryAddress: isDeliverySelected ? deliveryAddress : 'Non applicable',
-        // Stockage des coordonnées comme une chaîne JSON pour éviter les erreurs de type
-        deliveryCoordinates: isDeliverySelected && selectedCoordinates ? JSON.stringify(selectedCoordinates) : null,
+        deliveryCoordinates: isDeliverySelected && selectedCoordinates ? selectedCoordinates : null,
         customerMessageToSeller,
-        status: 'pending',
-        paymentStatus: 'pending_initiation',
+        status: isDeliverySelected ? 'pending' : 'confirmed',
+        paymentStatus: isDeliverySelected ? 'pending_initiation' : 'paid_on_pickup',
         updatedAt: serverTimestamp(),
         appFee: appFeeAmount,
         deliveryFee: deliveryFee,
         discountApplied: discount,
         finalAmount: finalTotalAmount,
-      });
-
-      const payload = {
-        userId: user.id,
-        orderId: orderId,
-        sellerId: sellerId,
-        payerPhoneNumber: phoneNumber,
-        recipientPhoneNumber: sellerPhoneNumber,
+        phoneNumber: phoneNumber,
         provider: selectedProvider,
-        amount: finalTotalAmount,
-        currency: 'CDF',
-        description: `Paiement commande ${orderId}`,
-      };
-
-      const response = await fetch(`${PAWAPAY_WEBHOOK_URL}/initiate-deposit`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
+        depositRequired: isDeliverySelected,
+        depositAmount: isDeliverySelected ? depositAmount : 0,
+        depositStatus: isDeliverySelected ? 'PENDING' : 'NOT_REQUIRED',
+        customerName: authUser?.name || 'Client',
+        customerEmail: authUser?.email || '',
+        estimatedDeliveryTime: isDeliverySelected ? '45 min' : 'Immédiat',
+        orderItems: orderItems,
+        sellerInfo: sellerInfo,
       });
 
-      const result = await response.json();
+      if (isDeliverySelected) {
+        const hasPermission = await requestSmsPermission();
+        if (!hasPermission) {
+          Alert.alert('Attention', 'La vérification automatique par SMS ne fonctionnera pas sans permission');
+        }
 
-      if (response.ok && result.success) {
         setPaymentStatus('pending_confirmation');
-        Alert.alert("Succès", "Paiement initié ! Veuillez confirmer sur votre téléphone.");
+        Alert.alert("Paiement en cours", "Veuillez confirmer le paiement sur votre téléphone. Ne quittez pas cette page.");
+
+        // Correction du payload pour correspondre aux attentes du serveur
+        const payload = {
+          userId: authUser.id,
+          orderId: orderId,
+          sellerId: sellerId,
+          phoneNumber: phoneNumber,
+          provider: selectedProvider,
+          amount: depositAmount,
+          currency: 'CDF',
+          description: `Dépôt commande ${orderId}`,
+          recipientPhoneNumber: sellerPhoneNumber,
+        };
+
+        console.log("Envoi de la requête avec payload:", JSON.stringify(payload, null, 2));
+
+        const response = await fetch(`${PAWAPAY_WEBHOOK_URL}/initiate-deposit`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const result = await response.json();
+        console.log("Réponse du serveur:", JSON.stringify(result, null, 2));
+
+        if (response.ok && result.success) {
+          startSmsListener(depositAmount);
+        } else {
+          setPaymentStatus('failed');
+          console.error("Échec de l'initiation du paiement Pawapay:", JSON.stringify(result, null, 2));
+          Alert.alert("Erreur", result.message || "Une erreur est survenue lors de l'initiation du paiement.");
+          await updateDoc(orderRef, { paymentStatus: 'failed_initiation' });
+        }
       } else {
-        setPaymentStatus('failed');
-        console.error("Échec de l'initiation du paiement Pawapay:", JSON.stringify(result, null, 2));
-        Alert.alert("Erreur", result.message || "Une erreur est survenue lors de l'initiation du paiement.");
-        await updateDoc(orderRef, { paymentStatus: 'failed_initiation' });
+        setPaymentStatus('success');
+        Alert.alert("Succès", "Commande confirmée ! Vous paierez sur place.");
+        router.push(`/order-confirmation/${orderId}` as any);
       }
 
     } catch (error) {
@@ -397,717 +814,468 @@ const PayScreen = () => {
     }
   };
 
-  const handleLocationSelect = (coords: MapCoordinates) => {
+  const handleLocationSelect = (coords: MapCoordinates, address: string) => {
     setSelectedCoordinates(coords);
+    setSelectedAddress(address);
+    setDeliveryAddress(address); // Pré-remplir l'adresse de livraison
   };
 
-  const getProviderIcon = (provider: string) => {
-    switch (provider) {
-      case 'VODACOM_MPESA_COD': return "sim-outline";
-      case 'ORANGE_COD': return "sim-outline";
-      case 'AIRTEL_COD': return "sim-outline";
-      default: return "credit-card-outline";
+  const isPaymentButtonDisabled = () => {
+    if (isProcessing) return true;
+    if (!phoneNumber || phoneNumber.length !== 12 || !phoneNumber.startsWith('2439')) return true;
+    if (!selectedProvider) return true;
+    if (isDeliverySelected) {
+      if (!deliveryLocation || !deliveryAddress || !selectedCoordinates) return true;
+    } else {
+      if (!selectedPickupHouse) return true;
     }
-  };
-
-  const getPaymentStatusText = (status: string) => {
-    switch (status) {
-      case 'pending': return 'Paiement en attente de confirmation';
-      case 'confirmed': return 'Paiement réussi !';
-      case 'failed': return 'Échec du paiement';
-      default: return 'En attente';
-    }
+    return false;
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.container}>
+        <ScrollView style={styles.container}>
           <View style={styles.header}>
             <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-              <Feather name="arrow-left" size={24} color="#333" />
+              <Ionicons name="arrow-back" size={24} color="#333" />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Paiement de la Commande</Text>
+            <Text style={styles.headerTitle}>Paiement</Text>
+            <TouchableOpacity onPress={handleShareOrder} style={styles.shareButton}>
+              <Ionicons name="share-social" size={24} color="#6C63FF" />
+            </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.content}>
-            {/* 13. Affichage des infos du vendeur et de l'utilisateur (avatar, nom, etc) */}
-            {loadingSeller ? (
-              <ActivityIndicator style={{ marginVertical: 20 }} size="small" color="#6C63FF" />
-            ) : sellerInfo && (
-              <View style={styles.sellerCard}>
-                {sellerInfo.photoBase64 ? (
-                  <Image source={{ uri: sellerInfo.photoBase64 }} style={styles.sellerImage} />
-                ) : (
-                  <Ionicons name="person-circle-outline" size={50} color="#ccc" style={styles.sellerImagePlaceholder} />
-                )}
-                <View style={styles.sellerInfoText}>
-                  <Text style={styles.sellerShopName}>{sellerInfo.shopName}</Text>
-                  <Text style={styles.sellerName}>par {sellerInfo.name}</Text>
+          {loadingSeller ? (
+            <ActivityIndicator size="small" color="#6C63FF" style={{ marginVertical: 20 }} />
+          ) : sellerInfo ? (
+            <View style={styles.sellerInfoContainer}>
+              <View style={styles.sellerDetails}>
+                <Image
+                  source={{ uri: sellerInfo.photoUrl || 'https://placehold.co/100x100' }}
+                  style={styles.sellerImage}
+                />
+                <View style={styles.sellerText}>
+                  <Text style={styles.shopNameText}>{sellerInfo.shopName || 'Boutique Anonyme'}</Text>
+                  <Text style={styles.sellerNameText}>{sellerInfo.name}</Text>
+                  <Text style={styles.sellerPhoneText}>{sellerInfo.phoneNumber}</Text>
                 </View>
-                {/* 14. Bouton de chat avec le vendeur */}
-                <TouchableOpacity style={styles.chatButton}>
-                  <Ionicons name="chatbox-outline" size={24} color="#6C63FF" />
-                </TouchableOpacity>
               </View>
-            )}
+            </View>
+          ) : (
+            <View style={styles.infoBox}>
+              <Text style={styles.infoText}>Informations du vendeur non disponibles.</Text>
+            </View>
+          )}
 
-            {/* 15. Section du résumé de la commande et du total - affichage détaillé */}
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Résumé de la Commande</Text>
-              <FlatList
-                data={orderItems}
-                keyExtractor={(item, index) => index.toString()}
-                renderItem={({ item }) => (
-                  <View style={styles.orderItem}>
-                    <View style={styles.orderItemPlaceholder}>
-                        <Feather name="image" size={24} color="#666" />
-                    </View>
-                    <View style={styles.orderItemTextContainer}>
-                      <Text style={styles.orderItemName}>{item.name}</Text>
-                      <Text style={styles.orderItemQuantity}>Quantité: {item.quantity}</Text>
-                    </View>
-                    <Text style={styles.orderItemPrice}>{item.price.toLocaleString()} CDF</Text>
-                  </View>
-                )}
-                scrollEnabled={false}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Type de commande</Text>
+            <View style={styles.switchContainer}>
+              <Text style={styles.switchText}>Livraison</Text>
+              <Switch
+                value={isDeliverySelected}
+                onValueChange={setIsDeliverySelected}
+                trackColor={{ false: "#ccc", true: "#6C63FF" }}
+                thumbColor="#f4f3f4"
               />
-              <View style={styles.divider} />
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Sous-total</Text>
-                <Text style={styles.summaryValue}>{parsedTotalAmount.toLocaleString()} CDF</Text>
-              </View>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Frais de service (5%)</Text>
-                <Text style={styles.summaryValue}>{appFeeAmount.toLocaleString()} CDF</Text>
-              </View>
-              {isDeliverySelected && (
-                <View style={styles.summaryItem}>
-                  <Text style={styles.summaryLabel}>Frais de livraison</Text>
-                  <Text style={styles.summaryValue}>{deliveryFee.toLocaleString()} CDF</Text>
-                </View>
-              )}
-              {discount > 0 && (
-                <View style={styles.summaryItem}>
-                  <Text style={styles.summaryLabel}>Remise du code promo</Text>
-                  <Text style={[styles.summaryValue, styles.discountText]}>- {discount.toLocaleString()} CDF</Text>
-                </View>
-              )}
-              <View style={styles.finalTotalContainer}>
-                <Text style={styles.finalTotalLabel}>TOTAL À PAYER</Text>
-                <Text style={styles.finalTotalValue}>{finalTotalAmount.toLocaleString()} CDF</Text>
-              </View>
+              <Text style={styles.switchText}>Retrait</Text>
             </View>
+          </View>
 
-            {/* 16. Section pour les codes promo */}
-            <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Code Promotionnel</Text>
-                <View style={styles.promoCodeContainer}>
-                    <TextInput
-                        style={styles.promoInput}
-                        placeholder="Entrez un code promo"
-                        value={promoCode}
-                        onChangeText={setPromoCode}
-                        autoCapitalize="characters"
-                    />
-                    <TouchableOpacity style={styles.applyPromoButton} onPress={applyPromoCode}>
-                        <Text style={styles.applyPromoButtonText}>Appliquer</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
-
-            {/* 17. Section du choix de la livraison */}
-            <View style={styles.card}>
-              <View style={styles.deliverySwitchContainer}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <MaterialCommunityIcons name="motorbike" size={24} color={isDeliverySelected ? "#6C63FF" : "#888"} />
-                    <Text style={styles.deliverySwitchLabel}>Livraison à Domicile</Text>
-                </View>
-                <Switch
-                  onValueChange={setIsDeliverySelected}
-                  value={isDeliverySelected}
-                  trackColor={{ false: "#ccc", true: "#6C63FF" }}
-                  thumbColor="#fff"
-                />
-              </View>
-              {/* 18. Affichage du statut de la commande et du temps de livraison estimé */}
-              <View style={styles.statusContainer}>
-                  <Text style={styles.statusLabel}>Statut de la commande :</Text>
-                  <Text style={styles.statusValue}>{orderStatus}</Text>
-              </View>
-              {isDeliverySelected && (
-                  <View style={styles.statusContainer}>
-                      <Text style={styles.statusLabel}>Livraison estimée :</Text>
-                      <Text style={styles.statusValue}>{estimatedDeliveryTime}</Text>
-                  </View>
-              )}
-            </View>
-
-            {/* 19. Section des détails de livraison (conditionnelle) */}
-            {isDeliverySelected && (
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Détails de Livraison</Text>
-                {/* 20. Bouton pour sélectionner la position sur une carte interactive */}
-                <TouchableOpacity style={styles.mapButton} onPress={() => setMapModalVisible(true)}>
-                  <Text style={styles.mapButtonText}>Choisir la position sur la carte</Text>
-                  <Feather name="map-pin" size={20} color="#6C63FF" />
-                </TouchableOpacity>
-                {/* 31. Bouton pour utiliser la position actuelle de l'utilisateur */}
-                <TouchableOpacity
-                  style={[styles.mapButton, styles.locationButton]}
-                  onPress={getLocation}
-                  disabled={isGettingLocation}
-                >
-                  {isGettingLocation ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <>
-                      <Text style={[styles.mapButtonText, styles.locationButtonText]}>Utiliser ma position actuelle</Text>
-                      <Ionicons name="locate-outline" size={20} color="#fff" />
-                    </>
-                  )}
-                </TouchableOpacity>
-                {selectedCoordinates && (
-                  <View style={styles.selectedLocationContainer}>
-                    <Text style={styles.selectedLocationText}>
-                      Position sélectionnée :
-                    </Text>
-                    <Text style={styles.selectedLocationCoords}>
-                      Lat: {selectedCoordinates.latitude.toFixed(4)}, Long: {selectedCoordinates.longitude.toFixed(4)}
-                    </Text>
-                  </View>
-                )}
-                {/* 21. Champ pour l'adresse de livraison */}
-                <TextInput
-                  style={styles.input}
-                  placeholder="Quartier, rue ou point de repère"
-                  value={deliveryLocation}
-                  onChangeText={setDeliveryLocation}
-                />
-                {/* 22. Champ pour les instructions de livraison */}
-                <TextInput
-                  style={styles.input}
-                  placeholder="Description détaillée de l'adresse"
-                  value={deliveryAddress}
-                  onChangeText={setDeliveryAddress}
-                />
-                {/* 23. Champ pour les notes de l'utilisateur au vendeur */}
-                <TextInput
-                  style={styles.input}
-                  placeholder="Message au livreur (optionnel)"
-                  value={customerMessageToSeller}
-                  onChangeText={setCustomerMessageToSeller}
-                />
-              </View>
-            )}
-
-            {/* 24. Section du formulaire de paiement */}
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Informations de Paiement</Text>
-              <Text style={styles.disclaimer}>Entrez votre numéro et choisissez votre fournisseur pour payer.</Text>
+          {isDeliverySelected ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Détails de la livraison</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Votre numéro de téléphone (Ex: 243...)"
-                keyboardType="phone-pad"
-                value={phoneNumber}
-                onChangeText={setPhoneNumber}
-                maxLength={12}
+                placeholder="Lieu de livraison (ex: Bumbu, Limete...)"
+                value={deliveryLocation}
+                onChangeText={setDeliveryLocation}
               />
-              {/* 25. Sélection du fournisseur de paiement */}
-              <View style={styles.providerButtonsContainer}>
-                {['VODACOM_MPESA_COD', 'ORANGE_COD', 'AIRTEL_COD'].map((provider) => (
-                    <TouchableOpacity
-                      key={provider}
-                      style={[styles.providerButton, selectedProvider === provider && styles.selectedProviderButton]}
-                      onPress={() => setSelectedProvider(provider)}
-                    >
-                      <MaterialCommunityIcons
-                        name={getProviderIcon(provider)}
-                        size={20}
-                        color={selectedProvider === provider ? '#fff' : '#6C63FF'}
-                      />
-                      <Text style={[styles.providerButtonText, selectedProvider === provider && styles.selectedProviderButtonText]}>
-                        {provider.split('_')[0]}
-                      </Text>
-                    </TouchableOpacity>
-                ))}
-              </View>
+              <TextInput
+                style={styles.input}
+                placeholder="Adresse détaillée (ex: Av. du 24, n°45)"
+                value={deliveryAddress}
+                onChangeText={setDeliveryAddress}
+              />
+              <TouchableOpacity style={styles.mapButton} onPress={() => setMapModalVisible(true)}>
+                <Feather name="map-pin" size={18} color="#fff" />
+                <Text style={styles.mapButtonText}>
+                  {selectedCoordinates ? 'Position sélectionnée' : 'Sélectionner sur la carte'}
+                </Text>
+              </TouchableOpacity>
+              {selectedAddress ? (
+                <Text style={styles.addressDisplayText} numberOfLines={2}>
+                  {selectedAddress}
+                </Text>
+              ) : null}
+              <Text style={styles.deliveryInfoText}>Frais de livraison: {DELIVERY_FEE} CDF</Text>
             </View>
+          ) : (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Point de retrait</Text>
+              <FlatList
+                data={PICKUP_HOUSES}
+                keyExtractor={(item) => item}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[styles.providerButton, selectedPickupHouse === item && styles.selectedProviderButton]}
+                    onPress={() => setSelectedPickupHouse(item)}
+                  >
+                    <Text style={[styles.providerText, selectedPickupHouse === item && styles.selectedProviderText]}>{item}</Text>
+                  </TouchableOpacity>
+                )}
+              />
+              <Text style={styles.deliveryInfoText}>Vous paierez sur place</Text>
+            </View>
+          )}
 
-            {/* 26. Bouton de confirmation du paiement */}
-            <TouchableOpacity
-              style={[styles.paymentButton, (isProcessing || !phoneNumber || !selectedProvider) && styles.disabledButton]}
-              onPress={() => setPaymentConfirmationModal(true)}
-              disabled={isProcessing || !phoneNumber || !selectedProvider}
-            >
-              {isProcessing ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Payer {finalTotalAmount.toLocaleString()} CDF</Text>
-              )}
-            </TouchableOpacity>
-
-            {/* 27. Modale de confirmation avant le paiement */}
-            <Modal visible={paymentConfirmationModal} transparent animationType="fade">
-              <View style={styles.modalOverlay}>
-                <View style={styles.confirmationModalCard}>
-                  <Text style={styles.modalTitle}>Confirmer le paiement</Text>
-                  <View style={styles.modalSummaryItem}>
-                    <Text style={styles.modalSummaryLabel}>Fournisseur:</Text>
-                    <Text style={styles.modalSummaryValue}>{selectedProvider?.split('_')[0]}</Text>
-                  </View>
-                  <View style={styles.modalSummaryItem}>
-                    <Text style={styles.modalSummaryLabel}>Numéro:</Text>
-                    <Text style={styles.modalSummaryValue}>{phoneNumber}</Text>
-                  </View>
-                  <View style={styles.modalSummaryItem}>
-                    <Text style={styles.modalSummaryLabel}>Montant:</Text>
-                    <Text style={styles.modalSummaryValue}>{finalTotalAmount.toLocaleString()} CDF</Text>
-                  </View>
-                  <View style={styles.modalButtonContainer}>
-                    <TouchableOpacity style={[styles.modalButton, { backgroundColor: '#ccc' }]} onPress={() => setPaymentConfirmationModal(false)}>
-                      <Text style={styles.modalButtonText}>Annuler</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.modalButton, { backgroundColor: '#6C63FF' }]} onPress={() => { setPaymentConfirmationModal(false); handlePayment(); }}>
-                      <Text style={[styles.modalButtonText, { color: '#fff' }]}>Confirmer</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            </Modal>
-
-            {/* 28. Composant de la carte en modale */}
-            <MapModal
-              isVisible={mapModalVisible}
-              onClose={() => setMapModalVisible(false)}
-              onLocationSelect={handleLocationSelect}
-              initialCoordinates={selectedCoordinates}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Détails de paiement</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Numéro de téléphone (2439...)"
+              keyboardType="phone-pad"
+              value={phoneNumber}
+              onChangeText={handlePhoneNumberChange}
+              maxLength={12}
             />
-          </ScrollView>
+            <Text style={styles.label}>Fournisseur de service</Text>
+            <View style={styles.providerContainer}>
+              <TouchableOpacity
+                style={[styles.providerButton, selectedProvider === 'VODACOM_MPESA_COD' && styles.selectedProviderButton]}
+                onPress={() => setSelectedProvider('VODACOM_MPESA_COD')}
+              >
+                <Image source={require('@/assets/images/vodacom.png')} style={styles.providerIcon} />
+                <Text style={[styles.providerText, selectedProvider === 'VODACOM_MPESA_COD' && styles.selectedProviderText]}>M-Pesa</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.providerButton, selectedProvider === 'ORANGE_COD' && styles.selectedProviderButton]}
+                onPress={() => setSelectedProvider('ORANGE_COD')}
+              >
+                <Image source={require('@/assets/images/orange.png')} style={styles.providerIcon} />
+                <Text style={[styles.providerText, selectedProvider === 'ORANGE_COD' && styles.selectedProviderText]}>Orange Money</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.providerButton, selectedProvider === 'AIRTEL_COD' && styles.selectedProviderButton]}
+                onPress={() => setSelectedProvider('AIRTEL_COD')}
+                >
+                <Image source={require('@/assets/images/airtel.png')} style={styles.providerIcon} />
+                <Text style={[styles.providerText, selectedProvider === 'AIRTEL_COD' && styles.selectedProviderText]}>Airtel Money</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Récapitulatif</Text>
+            {orderItems.map((item, index) => (
+              <View key={index} style={styles.summaryItem}>
+                <Text style={styles.summaryItemText}>{item.name} x {item.quantity}</Text>
+                <Text style={styles.summaryItemValue}>{item.price * item.quantity} CDF</Text>
+              </View>
+            ))}
+            <View style={styles.divider} />
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryItemText}>Sous-total</Text>
+              <Text style={styles.summaryItemValue}>{parsedTotalAmount} CDF</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryItemText}>Frais de service (5%)</Text>
+              <Text style={styles.summaryItemValue}>{appFeeAmount.toFixed(2)} CDF</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryItemText}>Frais de livraison</Text>
+              <Text style={styles.summaryItemValue}>{deliveryFee} CDF</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryItemText}>Réduction</Text>
+              <Text style={styles.summaryItemValue}>- {discount.toFixed(2)} CDF</Text>
+            </View>
+            <View style={[styles.summaryItem, styles.totalItem]}>
+              <Text style={styles.summaryTotalText}>Total à payer</Text>
+              <Text style={styles.summaryTotalValue}>{finalTotalAmount.toFixed(2)} CDF</Text>
+            </View>
+            {isDeliverySelected && (
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryItemText}>Acompte requis (10%)</Text>
+                <Text style={styles.summaryItemValue}>{depositAmount.toFixed(2)} CDF</Text>
+              </View>
+            )}
+          </View>
+          
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Code promo</Text>
+            <View style={styles.promoContainer}>
+              <TextInput
+                style={styles.promoInput}
+                placeholder="Entrer le code promo"
+                value={promoCode}
+                onChangeText={setPromoCode}
+                autoCapitalize="characters"
+              />
+              <TouchableOpacity style={styles.promoButton} onPress={applyPromoCode}>
+                <Text style={styles.promoButtonText}>Appliquer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Message au vendeur (optionnel)</Text>
+            <TextInput
+              style={styles.messageInput}
+              placeholder="Ex: Sonnez avant d'arriver..."
+              value={customerMessageToSeller}
+              onChangeText={setCustomerMessageToSeller}
+              multiline
+            />
+          </View>
+
+          {transactionStatus === 'failed' && showManualConfirm && (
+            <View style={styles.manualConfirmationContainer}>
+              <Text style={styles.manualConfirmationText}>Votre transaction n'a pas pu être vérifiée automatiquement.</Text>
+              <Text style={styles.manualConfirmationText}>Collez ici le message reçu de l'opérateur Mobile Money :</Text>
+              <TextInput
+                style={styles.smsMessageInput}
+                value={smsMessage}
+                onChangeText={setSmsMessage}
+                multiline
+              />
+              <TouchableOpacity
+                style={styles.confirmManualButton}
+                onPress={() => handleManualConfirmation(orderId as string, smsMessage)}
+              >
+                <Text style={styles.confirmManualButtonText}>Confirmer manuellement</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </ScrollView>
+
+        <View style={styles.payButtonContainer}>
+          <TouchableOpacity
+            style={[styles.payButton, isPaymentButtonDisabled() && styles.payButtonDisabled]}
+            onPress={handlePayment}
+            disabled={isPaymentButtonDisabled()}
+          >
+            {isProcessing ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.payButtonText}>
+                {isDeliverySelected ? `Payer ${depositAmount.toFixed(2)} CDF (acompte)` : 'Confirmer la commande'}
+              </Text>
+            )}
+          </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      <MapModal
+        isVisible={mapModalVisible}
+        onClose={() => setMapModalVisible(false)}
+        onLocationSelect={handleLocationSelect}
+        initialCoordinates={selectedCoordinates}
+        onGetLocation={getLocation}
+        isGettingLocation={isGettingLocation}
+      />
     </SafeAreaView>
   );
 };
 
-// --- STYLESHEET ---
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  container: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 15,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  backButton: {
-    paddingRight: 15,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  content: {
-    padding: 20,
-  },
-  card: {
+  safeArea: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1, padding: 20, backgroundColor: '#f7f7f7' },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  backButton: { padding: 10, marginRight: 10 },
+  headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#333', flex: 1 },
+  shareButton: { padding: 10 },
+  sellerInfoContainer: {
     backgroundColor: '#fff',
     borderRadius: 15,
-    padding: 20,
+    padding: 15,
     marginBottom: 20,
-    elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    elevation: 3,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
+  sellerDetails: { flexDirection: 'row', alignItems: 'center' },
+  sellerImage: { width: 60, height: 60, borderRadius: 30, marginRight: 15 },
+  sellerText: { flex: 1 },
+  shopNameText: { fontSize: 18, fontWeight: 'bold', color: '#333' },
+  sellerNameText: { fontSize: 16, color: '#666' },
+  sellerPhoneText: { fontSize: 14, color: '#999' },
+  section: {
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    padding: 15,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  orderItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    padding: 10,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 10,
-  },
-  orderItemPlaceholder: {
-    width: 50,
-    height: 50,
-    borderRadius: 8,
-    marginRight: 10,
-    backgroundColor: '#e0e0e0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  orderItemTextContainer: {
-    flex: 1,
-  },
-  orderItemName: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#333',
-  },
-  orderItemQuantity: {
-    fontSize: 13,
-    color: '#666',
-  },
-  orderItemPrice: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#6C63FF',
-  },
-  summaryItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  summaryLabel: {
-    fontSize: 15,
-    color: '#666',
-  },
-  summaryValue: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#333',
-  },
-  discountText: {
-    color: '#4CAF50',
-    fontWeight: 'bold',
-  },
-  divider: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    marginVertical: 10,
-  },
-  finalTotalContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  finalTotalLabel: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  finalTotalValue: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#6C63FF',
-  },
-  disclaimer: {
-    fontSize: 14,
-    color: '#888',
-    marginBottom: 15,
-    textAlign: 'center',
-  },
+  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 15 },
   input: {
-    height: 50,
-    borderColor: '#e8e8e8',
-    borderWidth: 1,
+    backgroundColor: '#f0f0f0',
     borderRadius: 10,
-    paddingHorizontal: 15,
-    marginBottom: 15,
-    backgroundColor: '#fbfbfb',
+    padding: 15,
+    marginBottom: 10,
     fontSize: 16,
   },
-  promoCodeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  promoInput: {
-    flex: 1,
-    height: 50,
-    borderColor: '#e8e8e8',
-    borderWidth: 1,
-    borderTopLeftRadius: 10,
-    borderBottomLeftRadius: 10,
-    paddingHorizontal: 15,
-    backgroundColor: '#fbfbfb',
+  messageInput: {
+    backgroundColor: '#f0f0f0',
+    borderRadius: 10,
+    padding: 15,
+    minHeight: 100,
     fontSize: 16,
+    textAlignVertical: 'top',
   },
-  applyPromoButton: {
-    height: 50,
-    backgroundColor: '#6C63FF',
-    paddingHorizontal: 20,
-    justifyContent: 'center',
-    borderTopRightRadius: 10,
-    borderBottomRightRadius: 10,
-  },
-  applyPromoButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  providerButtonsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    flexWrap: 'wrap',
-  },
+  providerContainer: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 10 },
   providerButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f0f0f0',
-    paddingVertical: 12,
-    paddingHorizontal: 15,
-    borderRadius: 10,
-    margin: 5,
-    flex: 1,
-    gap: 8,
-  },
-  selectedProviderButton: {
-    backgroundColor: '#6C63FF',
-  },
-  providerButtonText: {
-    color: '#555',
-    fontWeight: 'bold',
-  },
-  selectedProviderButtonText: {
-    color: '#fff',
-  },
-  paymentButton: {
-    backgroundColor: '#6C63FF',
-    borderRadius: 10,
-    paddingVertical: 18,
-    alignItems: 'center',
-    marginBottom: 20,
-    elevation: 3,
-    shadowColor: '#6C63FF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-  },
-  disabledButton: {
-    backgroundColor: '#ccc',
-    shadowColor: 'transparent',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  deliverySwitchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginBottom: 15,
-  },
-  deliverySwitchLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginLeft: 10,
-  },
-  statusContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  statusLabel: {
-    fontSize: 15,
-    color: '#666',
-  },
-  statusValue: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    color: '#6C63FF',
-  },
-  mapButton: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#e8e6ff',
-    borderRadius: 10,
-    marginBottom: 15,
-    borderColor: '#6C63FF',
-    borderWidth: 1,
-  },
-  mapButtonText: {
-    fontSize: 16,
-    color: '#6C63FF',
-    fontWeight: 'bold',
-    marginRight: 10,
-  },
-  selectedLocationContainer: {
     backgroundColor: '#f0f0f0',
     borderRadius: 10,
-    padding: 10,
-    marginBottom: 15,
-  },
-  selectedLocationText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  selectedLocationCoords: {
-    fontSize: 14,
-    color: '#6C63FF',
-  },
-  mapModalContainer: {
+    padding: 15,
     flex: 1,
+    marginHorizontal: 5,
+    justifyContent: 'center',
   },
+  selectedProviderButton: { backgroundColor: '#6C63FF' },
+  providerIcon: { width: 25, height: 25, marginRight: 10 },
+  providerText: { fontSize: 14, fontWeight: 'bold', color: '#333' },
+  selectedProviderText: { color: '#fff' },
+  payButtonContainer: { padding: 20, backgroundColor: '#eee', alignItems: 'center' },
+  payButton: {
+    backgroundColor: '#6C63FF',
+    borderRadius: 10,
+    paddingVertical: 15,
+    paddingHorizontal: 25,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+  },
+  payButtonDisabled: { backgroundColor: '#ccc' },
+  payButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 18 },
+  mapModalContainer: { flex: 1, backgroundColor: '#f7f7f7' },
   mapHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     padding: 15,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
   },
-  mapTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginLeft: 15,
-  },
-  map: {
-    flex: 1,
-    width: Dimensions.get('window').width,
-    height: Dimensions.get('window').height,
+  mapTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
+  mapWebView: { flex: 1, marginTop: 10 },
+  loadingOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  mapControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 20,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
   },
   mapConfirmButton: {
-    backgroundColor: '#6C63FF',
-    padding: 18,
-    margin: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  mapConfirmButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  locationButton: {
-    backgroundColor: '#6C63FF',
-    borderColor: '#6C63FF',
-    flexDirection: 'row',
-    gap: 10,
-  },
-  locationButtonText: {
-    color: '#fff',
-  },
-  modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: '#6C63FF',
+    borderRadius: 10,
+    padding: 15,
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+  mapConfirmButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  locationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#3498db',
+    borderRadius: 10,
+    padding: 15,
+    justifyContent: 'center',
+    gap: 5,
+  },
+  locationButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  switchContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 10 },
+  switchText: { fontSize: 16, color: '#333', marginHorizontal: 10 },
+  mapButton: {
+    flexDirection: 'row',
+    backgroundColor: '#6C63FF',
+    borderRadius: 10,
+    padding: 15,
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: 10,
   },
-  confirmationModalCard: {
+  mapButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginLeft: 10 },
+  deliveryInfoText: { fontSize: 14, color: '#666', marginTop: 10, textAlign: 'center' },
+  summaryItem: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
+  summaryItemText: { fontSize: 16, color: '#666' },
+  summaryItemValue: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  divider: { height: 1, backgroundColor: '#eee', marginVertical: 10 },
+  totalItem: { marginTop: 10, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 10 },
+  summaryTotalText: { fontSize: 18, fontWeight: 'bold', color: '#333' },
+  summaryTotalValue: { fontSize: 18, fontWeight: 'bold', color: '#6C63FF' },
+  promoContainer: { flexDirection: 'row', alignItems: 'center' },
+  promoInput: { flex: 1, backgroundColor: '#f0f0f0', borderRadius: 10, padding: 15, marginRight: 10, fontSize: 16 },
+  promoButton: { backgroundColor: '#6C63FF', borderRadius: 10, padding: 15 },
+  promoButtonText: { color: '#fff', fontWeight: 'bold' },
+  infoBox: { backgroundColor: '#fff', borderRadius: 15, padding: 15, marginBottom: 20, alignItems: 'center' },
+  infoText: { fontSize: 16, color: '#666' },
+  label: { fontSize: 16, color: '#666', marginBottom: 5, marginTop: 10 },
+  addressContainer: {
     backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 25,
-    width: '90%',
+    padding: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
   },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  addressText: {
+    fontSize: 14,
     color: '#333',
-    marginBottom: 20,
     textAlign: 'center',
   },
-  modalSummaryItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  addressDisplayText: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 5,
+  },
+  manualConfirmationContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 15,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#6C63FF',
+  },
+  manualConfirmationText: {
+    fontSize: 14,
+    color: '#333',
     marginBottom: 10,
   },
-  modalSummaryLabel: {
-    fontSize: 16,
-    color: '#666',
-  },
-  modalSummaryValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  modalButtonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 20,
-  },
-  modalButton: {
-    paddingVertical: 12,
+  smsMessageInput: {
+    backgroundColor: '#f0f0f0',
     borderRadius: 10,
-    alignItems: 'center',
-    flex: 1,
-    marginHorizontal: 5,
-  },
-  modalButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  sellerCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 15,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  sellerImage: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-  },
-  sellerImagePlaceholder: {
-    width: 50,
-    height: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sellerInfoText: {
-    marginLeft: 15,
-    flex: 1,
-  },
-  sellerShopName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  sellerName: {
-    fontSize: 14,
-    color: '#888',
-  },
-  chatButton: {
     padding: 10,
-    borderRadius: 20,
-    backgroundColor: '#e8e6ff',
+    minHeight: 80,
+    fontSize: 14,
+    textAlignVertical: 'top',
+    marginBottom: 10,
+  },
+  confirmManualButton: {
+    backgroundColor: '#6C63FF',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  confirmManualButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });
 

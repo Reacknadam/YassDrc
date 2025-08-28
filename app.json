@@ -16,7 +16,8 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.israel_ltd.YassDrc"
     },
     "web": {
       "bundler": "metro",
@@ -34,10 +35,27 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-maps"
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location."
+        }
+      ],
+      [
+        "expo-maps",
+        {
+          "apiKey": "AIzaSyDFIO7vLUTgo-jlRT2i77uHvEqoxgJfRj4"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "bf0661b1-391c-418e-a2f5-edf9d23ec30f"
+      }
     }
   }
 }

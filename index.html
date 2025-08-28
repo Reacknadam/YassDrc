@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administration - Application d'Abonnement</title>
+    <!-- Chargement de Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Configuration de Tailwind pour utiliser une police et des couleurs par défaut
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: '#4338CA', // Indigo 700
+                        secondary: '#E0E7FF', // Indigo 100
+                        accent: '#22C55E', // Green 500
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Chargement de Font Awesome pour les icônes -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Styles personnalisés pour le panneau d'administration */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f5f5f5;
+        }
+
+        .sidebar {
+            transition: width 0.3s ease-in-out;
+            width: 250px;
+        }
+
+        .main-content {
+            transition: margin-left 0.3s ease-in-out;
+            margin-left: 250px;
+        }
+        
+        /* Styles pour réduire la barre latérale */
+        .sidebar.collapsed {
+            width: 80px;
+        }
+
+        .main-content.collapsed {
+            margin-left: 80px;
+        }
+        
+        .sidebar.collapsed .menu-text,
+        .sidebar.collapsed .title-text {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex min-h-screen">
+    <!-- Barre latérale -->
+    <div id="sidebar" class="sidebar bg-primary text-white fixed h-full overflow-y-auto z-50">
+        <div class="p-5 text-center border-b border-indigo-700">
+            <h1 class="text-xl font-bold"><i class="fas fa-crown mr-2"></i><span class="title-text">Admin</span></h1>
+        </div>
+        <nav class="mt-5" id="nav-collections">
+            <!-- Les liens des collections seront générés ici par JS -->
+        </nav>
+        <div class="absolute bottom-4 left-0 right-0 p-4 border-t border-indigo-700">
+            <button id="logout-btn" class="w-full flex items-center p-2 rounded-lg text-red-300 hover:bg-red-700">
+                <i class="fas fa-sign-out-alt w-6"></i>
+                <span class="menu-text ml-3 font-medium">Déconnexion</span>
+            </button>
+        </div>
+        <button id="toggle-sidebar" class="absolute top-4 right-4 text-white p-2 rounded-full bg-indigo-700 hover:bg-indigo-600 transition-colors duration-150 ease-in-out hidden sm:block">
+            <i class="fas fa-chevron-left"></i>
+        </button>
+    </div>
+
+    <!-- Contenu principal -->
+    <div id="main-content" class="main-content flex-1 p-6 sm:p-10">
+        <div class="bg-white p-8 rounded-3xl shadow-2xl w-full">
+            <h1 class="text-4xl font-extrabold text-gray-800 mb-6" id="page-title">Connexion Administrateur</h1>
+
+            <!-- Message de statut et indicateur de chargement -->
+            <div id="status-message-container" class="relative">
+                <div id="status-message" class="p-4 rounded-lg hidden text-center font-medium"></div>
+                <div id="loading-spinner" class="absolute inset-0 flex items-center justify-center rounded-lg hidden bg-white bg-opacity-75">
+                    <svg class="animate-spin h-8 w-8 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Formulaire de connexion -->
+            <div id="login-section" class="space-y-6 mt-6 max-w-lg mx-auto p-6 bg-gray-50 rounded-2xl shadow-inner">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">Authentification</h2>
+                <form id="login-form" class="space-y-4">
+                    <div>
+                        <label for="admin-email" class="block text-sm font-medium text-gray-700">Email</label>
+                        <input type="email" id="admin-email" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50" placeholder="admin@example.com" required>
+                    </div>
+                    <div>
+                        <label for="admin-password" class="block text-sm font-medium text-gray-700">Mot de passe</label>
+                        <input type="password" id="admin-password" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50" placeholder="Votre mot de passe" required>
+                    </div>
+                    <button type="submit" id="login-button" class="w-full py-3 px-4 bg-primary text-white font-semibold rounded-md shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 transition duration-150 ease-in-out">
+                        Se connecter
+                    </button>
+                </form>
+            </div>
+
+            <!-- Contenu dynamique (caché initialement) -->
+            <div id="dynamic-content" class="hidden">
+                <div id="config-section" class="space-y-6 mt-6">
+                    <h2 class="text-2xl font-bold text-gray-800">Configuration de l'abonnement</h2>
+                    <form id="config-form" class="space-y-8">
+                        <div class="bg-gray-50 p-6 rounded-2xl shadow-inner">
+                            <h3 class="text-xl font-semibold text-gray-700 mb-4">Textes et Titres</h3>
+                            <div class="space-y-4">
+                                <div><label for="title" class="block text-sm font-medium text-gray-700">Titre de la page</label><input type="text" id="title" name="title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"></div>
+                                <div><label for="subtitle" class="block text-sm font-medium text-gray-700">Sous-titre</label><input type="text" id="subtitle" name="subtitle" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"></div>
+                                <div><label for="priceLabel" class="block text-sm font-medium text-gray-700">Libellé du prix</label><input type="text" id="priceLabel" name="priceLabel" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"></div>
+                                <div><label for="buttonText" class="block text-sm font-medium text-gray-700">Texte du bouton de paiement</label><input type="text" id="buttonText" name="buttonText" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"></div>
+                            </div>
+                        </div>
+                        <div class="bg-gray-50 p-6 rounded-2xl shadow-inner">
+                            <h3 class="text-xl font-semibold text-gray-700 mb-4">Prix</h3>
+                            <div><label for="amount" class="block text-sm font-medium text-gray-700">Montant de l'abonnement (CDF)</label><input type="number" id="amount" name="amount" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50" min="0" step="1"></div>
+                        </div>
+                        <div class="bg-gray-50 p-6 rounded-2xl shadow-inner">
+                            <h3 class="text-xl font-semibold text-gray-700 mb-4">Thème des Couleurs</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div><label for="primaryColor" class="block text-sm font-medium text-gray-700">Couleur Primaire</label><input type="color" id="primaryColor" name="primaryColor" class="mt-1 block w-full h-10 rounded-md border-gray-300 shadow-sm"></div>
+                                <div><label for="secondaryColor" class="block text-sm font-medium text-gray-700">Couleur Secondaire</label><input type="color" id="secondaryColor" name="secondaryColor" class="mt-1 block w-full h-10 rounded-md border-gray-300 shadow-sm"></div>
+                                <div><label for="successColor" class="block text-sm font-medium text-gray-700">Couleur Succès</label><input type="color" id="successColor" name="successColor" class="mt-1 block w-full h-10 rounded-md border-gray-300 shadow-sm"></div>
+                                <div><label for="errorColor" class="block text-sm font-medium text-gray-700">Couleur Erreur</label><input type="color" id="errorColor" name="errorColor" class="mt-1 block w-full h-10 rounded-md border-gray-300 shadow-sm"></div>
+                                <div><label for="backgroundColor" class="block text-sm font-medium text-gray-700">Couleur de fond</label><input type="color" id="backgroundColor" name="backgroundColor" class="mt-1 block w-full h-10 rounded-md border-gray-300 shadow-sm"></div>
+                            </div>
+                        </div>
+                        <div class="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
+                            <button type="submit" id="save-button" class="flex-1 py-3 px-4 bg-primary text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 transition duration-150 ease-in-out">
+                                Enregistrer les modifications
+                            </button>
+                            <button type="button" id="preview-button" class="flex-1 py-3 px-4 bg-gray-600 text-white font-semibold rounded-lg shadow-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition duration-150 ease-in-out">
+                                Aperçu
+                            </button>
+                        </div>
+                    </form>
+                    <!-- Section d'aperçu -->
+                    <div id="preview-section" class="hidden mt-10 p-6 rounded-2xl shadow-xl border border-gray-200">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">Aperçu de la page d'abonnement</h2>
+                        <div id="preview-content" class="text-center rounded-xl p-8 shadow-inner" style="transition: all 0.3s ease-in-out;">
+                            <h3 id="preview-title" class="text-3xl font-bold"></h3>
+                            <p id="preview-subtitle" class="text-xl mt-2"></p>
+                            <div class="mt-6 font-semibold" id="preview-price-container">
+                                <span id="preview-price-label"></span>
+                                <span id="preview-amount" class="text-4xl font-extrabold ml-2"></span>
+                            </div>
+                            <button id="preview-button-element" class="mt-8 py-3 px-8 rounded-lg font-bold text-lg text-white" style="transition: all 0.3s ease-in-out;"></button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section de gestion des collections -->
+                <div id="collections-section" class="hidden mt-6">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4" id="collection-title"></h2>
+                    <button id="back-to-collections" class="hidden mb-4 py-2 px-4 bg-gray-200 rounded-lg hover:bg-gray-300">
+                        <i class="fas fa-arrow-left mr-2"></i>Retour aux collections
+                    </button>
+                    <div id="document-table-container">
+                        <!-- Le tableau des documents sera inséré ici -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal pour l'édition de document -->
+    <div id="edit-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 hidden">
+        <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center pb-3 border-b border-gray-200">
+                <h3 class="text-xl font-semibold text-gray-800" id="modal-title"></h3>
+                <button id="close-modal" class="text-gray-400 hover:text-gray-600">&times;</button>
+            </div>
+            <div class="mt-4">
+                <textarea id="modal-content" class="w-full h-80 p-2 border rounded-md font-mono text-sm"></textarea>
+            </div>
+            <div id="action-buttons" class="mt-4 flex justify-end space-x-2">
+                <button id="modal-save-btn" class="py-2 px-4 bg-primary text-white rounded-lg hover:bg-indigo-700">Enregistrer</button>
+                <button id="modal-delete-btn" class="py-2 px-4 bg-red-500 text-white rounded-lg hover:bg-red-600">Supprimer</button>
+            </div>
+            <div id="confirm-delete-container" class="hidden mt-4 flex items-center justify-between p-4 bg-red-50 rounded-lg border border-red-200">
+                <p class="text-red-700 font-semibold">Êtes-vous sûr de vouloir supprimer ?</p>
+                <div class="flex space-x-2">
+                    <button id="confirm-delete-btn" class="py-2 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700">Oui, supprimer</button>
+                    <button id="cancel-delete-btn" class="py-2 px-4 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300">Annuler</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, doc, getDoc, setDoc, getDocs, collection, query, where, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // IMPORTANT : Pour la démonstration, la "connexion" est simulée. En production,
+        // les mots de passe ne doivent JAMAIS être gérés ou hachés côté client.
+        // Cela doit être géré sur un serveur sécurisé (ex: Firebase Functions).
+        // L'utilisation de `crypto.subtle.digest` est ici pour simuler
+        // le hachage côté serveur et n'est pas sécurisée pour un usage réel.
+        
+        // Initialisation de Firebase avec la configuration fournie
+        const firebaseConfig = {
+            apiKey: 'AIzaSyAiROTzgd26gOEEoWra2ADKTviv753cx5Q',
+            authDomain: 'yass-drc.firebaseapp.com',
+            projectId: 'yass-drc',
+            storageBucket: 'yass-drc.appspot.com',
+            messagingSenderId: '946442540515',
+            appId: '1:946442540515:web:d1b30386ab315e185bcd6',
+        };
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // Références DOM
+        const sidebar = document.getElementById('sidebar');
+        const mainContent = document.getElementById('main-content');
+        const navCollections = document.getElementById('nav-collections');
+        const pageTitle = document.getElementById('page-title');
+        const loginSection = document.getElementById('login-section');
+        const loginForm = document.getElementById('login-form');
+        const dynamicContent = document.getElementById('dynamic-content');
+        const configSection = document.getElementById('config-section');
+        const collectionsSection = document.getElementById('collections-section');
+        const collectionTitle = document.getElementById('collection-title');
+        const backBtn = document.getElementById('back-to-collections');
+        const documentTableContainer = document.getElementById('document-table-container');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const statusMessage = document.getElementById('status-message');
+        const modal = document.getElementById('edit-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalContent = document.getElementById('modal-content');
+        const actionButtons = document.getElementById('action-buttons');
+        const modalSaveBtn = document.getElementById('modal-save-btn');
+        const modalDeleteBtn = document.getElementById('modal-delete-btn');
+        const confirmDeleteContainer = document.getElementById('confirm-delete-container');
+        const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
+        const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
+        const closeModalBtn = document.getElementById('close-modal');
+        const logoutBtn = document.getElementById('logout-btn');
+
+        // Chemins Firebase
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // CORRECTION: Le chemin a été ajusté pour avoir un nombre pair de segments,
+        // ce qui est une exigence de Firestore pour les références de documents.
+        const publicConfigDocRef = doc(db, 'artifacts', appId, 'public', 'subscription_config');
+        const collectionsList = ['users', 'products', 'annonces', 'chats', 'news', 'orders', 'paymentSettings', 'productReviews', 'reports', 'sellerRequests', 'userFavorites', 'verificationRequests'];
+        const collectionIcons = {
+            'users': 'fas fa-users',
+            'products': 'fas fa-box',
+            'annonces': 'fas fa-bullhorn',
+            'chats': 'fas fa-comments',
+            'news': 'fas fa-newspaper',
+            'orders': 'fas fa-shopping-cart',
+            'paymentSettings': 'fas fa-wallet',
+            'productReviews': 'fas fa-star',
+            'reports': 'fas fa-chart-line',
+            'sellerRequests': 'fas fa-store',
+            'userFavorites': 'fas fa-heart',
+            'verificationRequests': 'fas fa-check-circle'
+        };
+
+        // État de l'application
+        let currentCollection = null;
+        let isConfigLoaded = false;
+        let docToDelete = null;
+
+        /**
+         * Affiche ou masque un indicateur de chargement.
+         * @param {boolean} isLoading - Vrai pour afficher, faux pour masquer.
+         */
+        const setLoading = (isLoading) => {
+            if (isLoading) {
+                loadingSpinner.classList.remove('hidden');
+            } else {
+                loadingSpinner.classList.add('hidden');
+            }
+        };
+
+        /**
+         * Affiche un message de statut temporaire.
+         * @param {string} message - Le message à afficher.
+         * @param {boolean} isError - Si vrai, le message est une erreur.
+         */
+        const showStatus = (message, isError = false) => {
+            statusMessage.textContent = message;
+            statusMessage.classList.remove('hidden', 'bg-green-100', 'text-green-700', 'bg-red-100', 'text-red-700');
+            if (isError) {
+                statusMessage.classList.add('bg-red-100', 'text-red-700');
+            } else {
+                statusMessage.classList.add('bg-green-100', 'text-green-700');
+            }
+            setTimeout(() => {
+                statusMessage.classList.add('hidden');
+            }, 5000);
+        };
+
+        /**
+         * Gère la connexion basée sur Firestore.
+         */
+        const handleLogin = async (email, password) => {
+            setLoading(true);
+            try {
+                // Hache le mot de passe entré par l'utilisateur pour le comparer avec le hachage stocké
+                const passwordHashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(password));
+                const passwordHash = Array.from(new Uint8Array(passwordHashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+                const usersRef = collection(db, 'users');
+                const q = query(usersRef, where('email', '==', email));
+                const querySnapshot = await getDocs(q);
+
+                if (querySnapshot.empty) {
+                    showStatus("Email ou mot de passe incorrect.", true);
+                    return false;
+                }
+
+                const userDoc = querySnapshot.docs[0];
+                const userData = userDoc.data();
+
+                if (userData.passwordHash === passwordHash) {
+                    showStatus("Connexion réussie !");
+                    localStorage.setItem('isAuthenticated', 'true');
+                    return true;
+                } else {
+                    showStatus("Email ou mot de passe incorrect.", true);
+                    return false;
+                }
+            } catch (error) {
+                console.error("Erreur de connexion:", error);
+                showStatus("Erreur de connexion. Veuillez réessayer.", true);
+                return false;
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        /**
+         * Charge la configuration de l'abonnement et remplit le formulaire.
+         */
+        const loadConfig = async () => {
+            if (isConfigLoaded) return;
+            setLoading(true);
+            try {
+                const docSnap = await getDoc(publicConfigDocRef);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    document.getElementById('title').value = data.title || '';
+                    document.getElementById('subtitle').value = data.subtitle || '';
+                    document.getElementById('priceLabel').value = data.priceLabel || '';
+                    document.getElementById('buttonText').value = data.buttonText || '';
+                    document.getElementById('amount').value = data.amount || 0;
+                    document.getElementById('primaryColor').value = data.theme?.primaryColor || '#4338CA';
+                    document.getElementById('secondaryColor').value = data.theme?.secondaryColor || '#E0E7FF';
+                    document.getElementById('successColor').value = data.theme?.successColor || '#22C55E';
+                    document.getElementById('errorColor').value = data.theme?.errorColor || '#EF4444';
+                    document.getElementById('backgroundColor').value = data.theme?.backgroundColor || '#F3F4F6';
+                } else {
+                    showStatus("Aucune configuration trouvée. Une configuration par défaut sera créée lors de la sauvegarde.", true);
+                }
+                isConfigLoaded = true;
+            } catch (e) {
+                console.error("Erreur lors du chargement de la configuration:", e);
+                showStatus("Erreur lors du chargement de la configuration.", true);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        /**
+         * Charge les documents d'une collection et les affiche dans un tableau.
+         * @param {string} collectionName - Le nom de la collection à charger.
+         */
+        const loadCollectionDocuments = async (collectionName) => {
+            setLoading(true);
+            try {
+                const colRef = collection(db, collectionName);
+                const colSnap = await getDocs(colRef);
+                const docs = colSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                collectionTitle.textContent = `Gestion de la collection "${collectionName}"`;
+                documentTableContainer.innerHTML = buildDocumentTable(docs, collectionName);
+                
+                // Gérer les boutons d'action du tableau
+                documentTableContainer.querySelectorAll('.view-doc-btn').forEach(button => {
+                    button.addEventListener('click', () => {
+                        const docId = button.dataset.docId;
+                        const docData = docs.find(d => d.id === docId);
+                        openEditModal(docData, collectionName, docId);
+                    });
+                });
+            } catch (e) {
+                console.error("Erreur lors du chargement de la collection:", e);
+                showStatus("Erreur lors du chargement de la collection. Vérifiez les permissions de la collection '${collectionName}'.", true);
+                documentTableContainer.innerHTML = `<p class="text-center text-gray-500 mt-4">Impossible de charger les documents. Vérifiez les permissions de la collection '${collectionName}'.</p>`;
+            } finally {
+                setLoading(false);
+            }
+        };
+        
+        /**
+         * Construit le tableau des documents.
+         * @param {Array<Object>} docs - Liste des documents.
+         * @param {string} collectionName - Nom de la collection.
+         * @returns {string} Le code HTML du tableau.
+         */
+        const buildDocumentTable = (docs, collectionName) => {
+            if (docs.length === 0) {
+                return `<p class="text-center text-gray-500 mt-4">Aucun document dans la collection '${collectionName}'.</p>`;
+            }
+            // Créer une liste de toutes les clés uniques pour les en-têtes
+            const allKeys = new Set();
+            docs.forEach(doc => {
+                Object.keys(doc).forEach(key => allKeys.add(key));
+            });
+            const headers = Array.from(allKeys);
+            
+            let tableHTML = `<div class="overflow-x-auto"><table class="min-w-full bg-white rounded-xl shadow-lg"><thead><tr class="bg-gray-200 text-gray-600 uppercase text-sm leading-normal">`;
+            headers.forEach(header => {
+                tableHTML += `<th class="py-3 px-6 text-left">${header}</th>`;
+            });
+            tableHTML += `<th class="py-3 px-6 text-center">Actions</th></tr></thead><tbody class="text-gray-600 text-sm font-light">`;
+            docs.forEach(doc => {
+                tableHTML += `<tr class="border-b border-gray-200 hover:bg-gray-100">`;
+                headers.forEach(header => {
+                    const value = doc[header];
+                    let displayValue;
+                    if (typeof value === 'object' && value !== null) {
+                        displayValue = JSON.stringify(value);
+                    } else {
+                        displayValue = value;
+                    }
+                    displayValue = String(displayValue).length > 50 ? `${String(displayValue).substring(0, 50)}...` : String(displayValue);
+                    tableHTML += `<td class="py-3 px-6 text-left">${displayValue}</td>`;
+                });
+                tableHTML += `<td class="py-3 px-6 text-center whitespace-nowrap"><button class="view-doc-btn py-1 px-3 rounded-lg text-white bg-indigo-500 hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500" data-doc-id="${doc.id}"><i class="fas fa-eye mr-2"></i>Voir</button></td></tr>`;
+            });
+            tableHTML += `</tbody></table></div>`;
+            return tableHTML;
+        };
+
+        /**
+         * Ouvre le modal d'édition de document.
+         * @param {Object} docData - Les données du document.
+         * @param {string} collectionName - Nom de la collection.
+         * @param {string} docId - ID du document.
+         */
+        const openEditModal = (docData, collectionName, docId) => {
+            modalTitle.textContent = `Éditer le document "${docId}"`;
+            modalContent.value = JSON.stringify(docData, null, 2);
+            modalSaveBtn.dataset.collection = collectionName;
+            modalSaveBtn.dataset.docId = docId;
+            modalDeleteBtn.dataset.collection = collectionName;
+            modalDeleteBtn.dataset.docId = docId;
+            confirmDeleteBtn.dataset.collection = collectionName;
+            confirmDeleteBtn.dataset.docId = docId;
+            docToDelete = { collectionName, docId };
+            modal.classList.remove('hidden');
+        };
+
+        /**
+         * Ferme le modal et réinitialise les boutons.
+         */
+        const closeModal = () => {
+            modal.classList.add('hidden');
+            actionButtons.classList.remove('hidden');
+            confirmDeleteContainer.classList.add('hidden');
+            docToDelete = null;
+        };
+
+        /**
+         * Sauvegarde le document édité.
+         */
+        const saveDocument = async (collectionName, docId, newContent) => {
+            setLoading(true);
+            try {
+                await setDoc(doc(db, collectionName, docId), JSON.parse(newContent));
+                showStatus("Document sauvegardé avec succès !");
+                closeModal();
+                loadCollectionDocuments(collectionName);
+            } catch (e) {
+                console.error("Erreur lors de la sauvegarde du document:", e);
+                showStatus("Erreur lors de la sauvegarde. Format JSON invalide ou permissions insuffisantes.", true);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        /**
+         * Supprime le document.
+         */
+        const deleteDocument = async (collectionName, docId) => {
+            setLoading(true);
+            try {
+                await deleteDoc(doc(db, collectionName, docId));
+                showStatus("Document supprimé avec succès !");
+                closeModal();
+                loadCollectionDocuments(collectionName);
+            } catch (e) {
+                console.error("Erreur lors de la suppression du document:", e);
+                showStatus("Erreur lors de la suppression. Permissions insuffisantes.", true);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        /**
+         * Gère l'affichage des sections en fonction de l'état de l'authentification.
+         */
+        const updateUI = () => {
+            if (localStorage.getItem('isAuthenticated') === 'true') {
+                loginSection.classList.add('hidden');
+                dynamicContent.classList.remove('hidden');
+                pageTitle.textContent = "Panneau d'administration";
+                loadConfig();
+            } else {
+                loginSection.classList.remove('hidden');
+                dynamicContent.classList.add('hidden');
+                pageTitle.textContent = "Connexion Administrateur";
+            }
+        };
+
+        /**
+         * Génère les liens de navigation pour les collections.
+         */
+        const generateCollectionLinks = () => {
+            navCollections.innerHTML = `
+                <a href="#" data-section="config" class="flex items-center p-2 rounded-lg hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <i class="fas fa-cogs w-6"></i>
+                    <span class="menu-text ml-3 font-medium">Configuration</span>
+                </a>
+                <hr class="my-4 border-indigo-700">
+                <h2 class="text-sm font-semibold uppercase text-indigo-300 px-4 mb-2"><span class="menu-text">Collections</span></h2>
+                ${collectionsList.map(name => `
+                    <a href="#" data-section="collections" data-collection="${name}" class="flex items-center p-2 rounded-lg hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <i class="${collectionIcons[name] || 'fas fa-database'} w-6"></i>
+                        <span class="menu-text ml-3 font-medium">${name}</span>
+                    </a>
+                `).join('')}
+            `;
+        };
+
+        // Écouteurs d'événements
+        document.addEventListener('DOMContentLoaded', () => {
+            generateCollectionLinks();
+            updateUI();
+        });
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('admin-email').value;
+            const password = document.getElementById('admin-password').value;
+            const success = await handleLogin(email, password);
+            if (success) {
+                updateUI();
+            }
+        });
+
+        logoutBtn.addEventListener('click', () => {
+            localStorage.removeItem('isAuthenticated');
+            updateUI();
+            // Cacher les sections pour revenir à la page de connexion
+            configSection.classList.add('hidden');
+            collectionsSection.classList.add('hidden');
+            loginSection.classList.remove('hidden');
+            pageTitle.textContent = "Connexion Administrateur";
+        });
+
+        navCollections.addEventListener('click', (e) => {
+            e.preventDefault();
+            const target = e.target.closest('a');
+            if (!target) return;
+
+            const section = target.dataset.section;
+            const collectionName = target.dataset.collection;
+
+            // Cacher toutes les sections
+            configSection.classList.add('hidden');
+            collectionsSection.classList.add('hidden');
+            backBtn.classList.add('hidden');
+
+            if (section === 'config') {
+                configSection.classList.remove('hidden');
+                loadConfig();
+            } else if (section === 'collections' && collectionName) {
+                collectionsSection.classList.remove('hidden');
+                backBtn.classList.remove('hidden');
+                loadCollectionDocuments(collectionName);
+                currentCollection = collectionName;
+            }
+        });
+        
+        backBtn.addEventListener('click', () => {
+            collectionsSection.classList.add('hidden');
+            configSection.classList.remove('hidden');
+            backBtn.classList.add('hidden');
+        });
+
+        // Gestion de la sauvegarde
+        const configForm = document.getElementById('config-form');
+        configForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            setLoading(true);
+            try {
+                const data = {
+                    title: document.getElementById('title').value,
+                    subtitle: document.getElementById('subtitle').value,
+                    priceLabel: document.getElementById('priceLabel').value,
+                    buttonText: document.getElementById('buttonText').value,
+                    amount: parseInt(document.getElementById('amount').value),
+                    theme: {
+                        primaryColor: document.getElementById('primaryColor').value,
+                        secondaryColor: document.getElementById('secondaryColor').value,
+                        successColor: document.getElementById('successColor').value,
+                        errorColor: document.getElementById('errorColor').value,
+                        backgroundColor: document.getElementById('backgroundColor').value,
+                    }
+                };
+                await setDoc(publicConfigDocRef, data);
+                showStatus("Configuration sauvegardée avec succès !");
+                updatePreview(); // Mettre à jour l'aperçu après la sauvegarde
+            } catch (e) {
+                console.error("Erreur lors de la sauvegarde de la configuration:", e);
+                showStatus("Erreur de sauvegarde de la configuration.", true);
+            } finally {
+                setLoading(false);
+            }
+        });
+        
+        // Gestion de l'aperçu
+        const previewButton = document.getElementById('preview-button');
+        const previewSection = document.getElementById('preview-section');
+        const previewTitle = document.getElementById('preview-title');
+        const previewSubtitle = document.getElementById('preview-subtitle');
+        const previewPriceLabel = document.getElementById('preview-price-label');
+        const previewAmount = document.getElementById('preview-amount');
+        const previewButtonElement = document.getElementById('preview-button-element');
+        const previewContent = document.getElementById('preview-content');
+
+        const updatePreview = () => {
+            const title = document.getElementById('title').value;
+            const subtitle = document.getElementById('subtitle').value;
+            const priceLabel = document.getElementById('priceLabel').value;
+            const amount = document.getElementById('amount').value;
+            const buttonText = document.getElementById('buttonText').value;
+            const primaryColor = document.getElementById('primaryColor').value;
+            const secondaryColor = document.getElementById('secondaryColor').value;
+            const backgroundColor = document.getElementById('backgroundColor').value;
+
+            previewTitle.textContent = title;
+            previewSubtitle.textContent = subtitle;
+            previewPriceLabel.textContent = priceLabel;
+            previewAmount.textContent = `${amount} CDF`;
+            previewButtonElement.textContent = buttonText;
+
+            previewContent.style.backgroundColor = secondaryColor;
+            document.body.style.backgroundColor = backgroundColor;
+            previewButtonElement.style.backgroundColor = primaryColor;
+        };
+
+        previewButton.addEventListener('click', () => {
+            if (previewSection.classList.contains('hidden')) {
+                updatePreview();
+                previewSection.classList.remove('hidden');
+            } else {
+                previewSection.classList.add('hidden');
+            }
+        });
+
+        // Événements pour le modal d'édition
+        closeModalBtn.addEventListener('click', closeModal);
+        window.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+
+        modalSaveBtn.addEventListener('click', () => {
+            const collectionName = modalSaveBtn.dataset.collection;
+            const docId = modalSaveBtn.dataset.docId;
+            const newContent = modalContent.value;
+            saveDocument(collectionName, docId, newContent);
+        });
+
+        // Gérer la suppression en deux étapes
+        modalDeleteBtn.addEventListener('click', () => {
+            actionButtons.classList.add('hidden');
+            confirmDeleteContainer.classList.remove('hidden');
+        });
+
+        cancelDeleteBtn.addEventListener('click', () => {
+            actionButtons.classList.remove('hidden');
+            confirmDeleteContainer.classList.add('hidden');
+        });
+
+        confirmDeleteBtn.addEventListener('click', () => {
+            if (docToDelete) {
+                deleteDocument(docToDelete.collectionName, docToDelete.docId);
+            }
+        });
+
+        // Ajout d'une gestion de l'affichage initial des sections
+        if (localStorage.getItem('isAuthenticated') === 'true') {
+            configSection.classList.remove('hidden');
+            collectionsSection.classList.add('hidden');
+            backBtn.classList.add('hidden');
+        }
+        
+        // Gestion du basculement de la barre latérale
+        const toggleSidebarBtn = document.getElementById('toggle-sidebar');
+        toggleSidebarBtn.addEventListener('click', () => {
+            sidebar.classList.toggle('collapsed');
+            mainContent.classList.toggle('collapsed');
+            const icon = toggleSidebarBtn.querySelector('i');
+            if (sidebar.classList.contains('collapsed')) {
+                icon.classList.remove('fa-chevron-left');
+                icon.classList.add('fa-chevron-right');
+            } else {
+                icon.classList.remove('fa-chevron-right');
+                icon.classList.add('fa-chevron-left');
+            }
+        });
+    </script>
+</body>
+</html>

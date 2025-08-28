@@ -1,19 +1,31 @@
 // context/AuthContext.tsx
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '@/firebase/config';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import {
+  doc,
+  getDoc,
+  setDoc,
+  deleteDoc,
+} from 'firebase/firestore';
 import * as Crypto from 'expo-crypto';
 import { useRouter } from 'expo-router';
 
+// =================================================================================
+// INTERFACES & TYPES
+// =================================================================================
+
 type UserType = {
-  id: string;
+  id: string; // Utiliser 'id' au lieu de 'uid' pour la cohérence
   email: string;
   name: string;
   token?: string;
   isSellerVerified?: boolean;
   photoBase64?: string;
+  shopName?: string;
+  photoUrl?: string;
+
+ 
   phoneNumber?: string; 
   sellerForm?: {
     phoneNumber?: string;
@@ -21,12 +33,16 @@ type UserType = {
   };
 };
 
+// Mise à jour de l'interface AuthContextType pour inclure
+// authUser et deleteUserAccount. Cela résout l'erreur de
+// compilation dans le fichier profile.tsx.
 type AuthContextType = {
-  user: UserType | null;
+  authUser: UserType | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   register: (name: string, email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
+  deleteUserAccount: () => Promise<void>;
   isAuthenticated: boolean;
   error: string | null;
   setError: (error: string | null) => void;
@@ -36,19 +52,15 @@ const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
 export const useAuth = () => useContext(AuthContext);
 
+// URL de base de votre Worker Cloudflare
+const CLOUDFLARE_WORKER_URL = 'https://authentification.israelntalu328.workers.dev';
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<UserType | null>(null);
+  // Renommage de 'user' en 'authUser' pour correspondre à profile.tsx
+  const [authUser, setAuthUser] = useState<UserType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-
-  // Fonction pour hasher le mot de passe
-  const hashPassword = async (password: string) => {
-    return await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      password
-    );
-  };
 
   // Charger l'utilisateur au démarrage
   useEffect(() => {
@@ -56,17 +68,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       try {
         setLoading(true);
         const userJson = await AsyncStorage.getItem('@user');
-        
         if (userJson) {
           const userData = JSON.parse(userJson);
-          
-          // Vérifier si le token est toujours valide (optionnel)
-          const userDoc = await getDoc(doc(db, 'users', userData.email));
-          if (userDoc.exists()) {
-            setUser(userData);
-          } else {
-            await AsyncStorage.removeItem('@user');
-          }
+          // On ne vérifie plus directement dans Firestore, on se base sur le token stocké
+          setAuthUser(userData);
         }
       } catch (err) {
         console.error('Erreur de chargement:', err);
@@ -75,98 +80,82 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setLoading(false);
       }
     };
-
     loadUser();
   }, []);
 
-  // Connexion de l'utilisateur
+  // Connexion de l'utilisateur via le Worker
   const login = async (email: string, password: string): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
+      const response = await fetch(`${CLOUDFLARE_WORKER_URL}/api/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
 
-      const userDocRef = doc(db, 'users', email);
-      const userSnap = await getDoc(userDocRef);
-
-      if (!userSnap.exists()) {
-        setError('Utilisateur non trouvé');
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || 'Erreur de connexion');
         return false;
       }
 
-      const userData = userSnap.data();
-      const hashedPassword = await hashPassword(password);
-
-      // Comparaison des mots de passe hashés
-      if (userData.passwordHash !== hashedPassword) {
-        setError('Mot de passe incorrect');
-        return false;
-      }
-
-      // Créer l'objet utilisateur à stocker
+      // Stocker l'utilisateur avec le token
       const userToStore = {
-        id: email,
-        email,
-        name: userData.name,
-        token: `fake-jwt-token-${Date.now()}`, // Dans un vrai cas, utiliser un vrai JWT
-        isSellerVerified: userData.isSellerVerified || false
+        id: data.user.uid,
+        email: data.user.email,
+        name: data.user.name,
+        token: data.token,
+        isSellerVerified: data.user.isSellerVerified,
       };
 
       await AsyncStorage.setItem('@user', JSON.stringify(userToStore));
-      setUser(userToStore);
+      setAuthUser(userToStore);
       return true;
-
     } catch (err) {
       console.error('Erreur de connexion:', err);
-      setError('Erreur lors de la connexion');
+      setError('Erreur lors de la connexion. Veuillez réessayer.');
       return false;
     } finally {
       setLoading(false);
     }
   };
 
-  // Inscription de l'utilisateur
+  // Inscription de l'utilisateur via le Worker
   const register = async (name: string, email: string, password: string): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
+      const response = await fetch(`${CLOUDFLARE_WORKER_URL}/api/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name, email, password }),
+      });
 
-      // Vérifier si l'utilisateur existe déjà
-      const userDocRef = doc(db, 'users', email);
-      const userSnap = await getDoc(userDocRef);
-
-      if (userSnap.exists()) {
-        setError('Cet email est déjà utilisé');
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || 'Erreur d\'inscription');
         return false;
       }
 
-      // Hasher le mot de passe
-      const passwordHash = await hashPassword(password);
-
-      // Créer le nouvel utilisateur dans Firestore
-      await setDoc(userDocRef, {
-        name,
-        email,
-        passwordHash,
-        isSellerVerified: false,
-        createdAt: new Date().toISOString()
-      });
-
-      // Connecter l'utilisateur directement après l'inscription
       const userToStore = {
-        id: email,
-        email,
-        name,
-        token: `fake-jwt-token-${Date.now()}`,
-        isSellerVerified: false
+        id: data.user.uid,
+        email: data.user.email,
+        name: data.user.name,
+        token: data.token,
+        isSellerVerified: data.user.isSellerVerified,
       };
 
       await AsyncStorage.setItem('@user', JSON.stringify(userToStore));
-      setUser(userToStore);
+      setAuthUser(userToStore);
       return true;
-
     } catch (err) {
       console.error('Erreur d\'inscription:', err);
-      setError('Erreur lors de l\'inscription');
+      setError('Erreur lors de l\'inscription. Veuillez réessayer.');
       return false;
     } finally {
       setLoading(false);
@@ -178,7 +167,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       setLoading(true);
       await AsyncStorage.removeItem('@user');
-      setUser(null);
+      setAuthUser(null);
       router.replace('/login');
     } catch (err) {
       console.error('Erreur de déconnexion:', err);
@@ -187,20 +176,60 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setLoading(false);
     }
   };
+  
+  // Suppression du compte via le Worker
+  const deleteUserAccount = async () => {
+    if (!authUser) {
+      setError("Aucun utilisateur n'est connecté.");
+      return;
+    }
+  
+    setLoading(true);
+    setError(null);
+    try {
+      // Dans une application réelle, il faudrait un token JWT pour sécuriser cette requête
+      const response = await fetch(`${CLOUDFLARE_WORKER_URL}/api/delete-account`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          // 'Authorization': `Bearer ${authUser.token}`, // Recommandé en prod
+        },
+        body: JSON.stringify({ uid: authUser.id }),
+      });
+  
+      if (!response.ok) {
+        const data = await response.json();
+        setError(data.error || 'Erreur de suppression du compte.');
+        setLoading(false);
+        return;
+      }
+      
+      await logout();
+      setError("Votre compte a été supprimé avec succès.");
+      console.log("Compte supprimé pour l'utilisateur:", authUser.email);
+    } catch (err) {
+      console.error('Erreur lors de la suppression du compte:', err);
+      setError('Erreur lors de la suppression du compte.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const isAuthenticated = !!user;
+
+  const isAuthenticated = !!authUser;
 
   return (
     <AuthContext.Provider
       value={{
-        user,
+        authUser, // Utilisateur renommé en authUser
         loading,
         login,
         register,
         logout,
+        deleteUserAccount, // Nouvelle fonction ajoutée
         isAuthenticated,
         error,
-        setError
+        setError,
       }}
     >
       {children}

@@ -1,57 +1,128 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  ActivityIndicator,
-  TouchableOpacity,
-  Alert,
-  Image,
-  Modal,
-  TextInput,
-  Switch,
-  FlatList,
-  RefreshControl,
-  Platform,
-  Dimensions,
-  SafeAreaView,
-} from 'react-native';
-import { Ionicons, Feather } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
-import { db } from '@/firebase/config';
+import { db, storage } from '@/firebase/config';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as ImagePickerExpo from 'expo-image-picker';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { useRouter } from 'expo-router';
 import {
+  addDoc,
+  collection,
+  deleteDoc,
   doc,
   getDoc,
-  updateDoc,
-  collection,
-  query,
-  where,
+  getDocs,
   onSnapshot,
   orderBy,
+  query,
   serverTimestamp,
-  addDoc,
-  deleteDoc,
-  deleteField,
   setDoc,
   Timestamp,
+  updateDoc,
+  where,
+  writeBatch
 } from 'firebase/firestore';
-import * as ImagePickerExpo from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
-import { useRouter } from 'expo-router';
+import moment from 'moment';
+import 'moment/locale/fr';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Dimensions,
+  Easing,
+  FlatList,
+  Image,
+  Modal,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  Share,
+  StyleProp,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TextStyle,
+  TouchableOpacity,
+  View
+} from 'react-native';
 
-// --- INTERFACES ---
+// =================================================================================
+// CONSTANTES
+// =================================================================================
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const SUBSCRIPTION_COLLECTION = 'subscriptions';
+const DEFAULT_SUBSCRIPTION_PRICE = 5000;
+
+// =================================================================================
+// INTERFACES & TYPES
+// =================================================================================
+
+type LoadingStates = {
+  profile: boolean;
+  sellerForm: boolean;
+  payment: boolean;
+  products: boolean;
+  orders: boolean;
+  promotions: boolean;
+  profileEdit: boolean;
+  subscriptionPrice: boolean;
+  reports: boolean;
+  reviews: boolean;
+  activity: boolean;
+};
+
+type ActiveTab = 'profile' | 'orders' | 'products' | 'stats' | 'activity' | 'settings' | 'promotions' | 'reviews';
+
+interface Address {
+  id: string;
+  label: string;
+  street: string;
+  city: string;
+  isDefault: boolean;
+}
+
+
+interface ManualConfirmationModalProps { 
+  visible: boolean; 
+  onClose: () => void; 
+  onConfirm: (confirmationCode: string, smsMessage: string) => void;
+  loading: boolean;
+  authUser: any; // Ajoutez cette ligne
+}
+
+
+interface Promotion {
+  id: string;
+  code: string;
+  discountPercentage: number;
+  expiresAt: Timestamp;
+  isActive: boolean;
+}
+
 interface UserProfile {
   email: string;
   name?: string;
-  photoBase64?: string | null;
+  id: string;
+  photoUrl?: string | null;
+  phoneNumber?: string | null;
   isSellerRequested?: boolean;
   isSellerVerified?: boolean;
   sellerForm?: SellerForm;
   sellerRequestId?: string;
+  photoBase64?: string | null;
   uid?: string;
   paymentId?: string;
+  paymentStatus?: 'idle' | 'pending' | 'success' | 'failed' | 'saved';
+  paymentPhoneNumber?: string;
+  selectedProvider?: string | null;
+  notificationsEnabled?: boolean;
+  theme?: 'light' | 'dark';
+  addresses?: Address[];
+  vacationMode?: boolean;
+  subscriptionExpiry?: Timestamp;
 }
 
 interface SellerForm {
@@ -62,7 +133,7 @@ interface SellerForm {
   phoneNumber: string;
   location: string;
   address: string;
-  isAdult?: boolean;
+  isAdult: boolean;
 }
 
 interface Order {
@@ -73,10 +144,17 @@ interface Order {
   totalPrice: number;
   deliveryLocation: string;
   deliveryAddress: string;
-  status: 'pending' | 'confirmed' | 'delivered' | 'cancelled';
+  status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
   createdAt: Timestamp;
   productId: string;
   quantity: number;
+  sellerId: string;
+  trackingNumber?: string;
+  statusHistory: {
+    status: Order['status'];
+    timestamp: Timestamp;
+    note?: string;
+  }[];
 }
 
 interface Product {
@@ -85,33 +163,63 @@ interface Product {
   description: string;
   price: string;
   category: string;
-  images: string[] | null;
+  images: string[];
   sellerId: string;
   createdAt: Timestamp;
   star: number;
+  reviews?: Review[];
+  stock: number;
 }
 
-interface Conversation {
+interface Review {
   id: string;
-  participants: string[];
-  lastMessage: {
-    text: string;
-    timestamp: Timestamp;
-    senderId: string;
-  };
-  unreadCounts: { [userId: string]: number };
-  otherParticipant: string;
-  otherParticipantName?: string;
-  unreadCount?: number;
+  author: string;
+  rating: number;
+  comment: string;
+  createdAt: Timestamp;
+  productId: string;
 }
 
-// --- CONSTANTES ---
-const PAWAPAY_WEBHOOK_URL = 'https://yass-webhook.israelntalu328.workers.dev';
-const PAYMENT_AMOUNT = 5000;
+interface UserActivity {
+  id: string;
+  type: 'order' | 'product_added' | 'product_updated' | 'profile_updated' | 'seller_request' | 'promotion_added' | 'report_submitted' | 'review_added';
+  description: string;
+  timestamp: Timestamp;
+}
 
-// --- Composants Modals ---
-// (Les composants ProductModal et OrderModal restent similaires,
-// mais utilisent les styles unifiés définis plus bas)
+interface Report {
+  id: string;
+  type: 'technical' | 'payment' | 'product' | 'user' | 'other';
+  description: string;
+  status: 'new' | 'in_progress' | 'resolved';
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  userId: string;
+}
+
+interface PromotionModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSave: (promotion: Omit<Promotion, 'id' | 'isActive'>) => void;
+}
+
+interface PromotionsTabProps {
+  promotions: Promotion[];
+  onAddPromotion: () => void;
+  onTogglePromotion: (promotionId: string, currentStatus: boolean) => void;
+  onDeletePromotion: (promotionId: string) => void;
+  loading: boolean;
+}
+
+interface ConfirmationModalProps {
+  visible: boolean;
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  confirmText?: string;
+  cancelText?: string;
+}
 
 interface ProductModalProps {
   visible: boolean;
@@ -121,40 +229,1094 @@ interface ProductModalProps {
   onProductSaved: () => void;
 }
 
-const ProductModal: React.FC<ProductModalProps> = ({
-  visible,
-  onClose,
-  product,
-  sellerId,
-  onProductSaved,
-}) => {
+interface OrderModalProps {
+  visible: boolean;
+  onClose: () => void;
+  order: Order | null;
+  onStatusChange: (orderId: string, newStatus: Order['status'], tracking?: string, note?: string) => void;
+  isSeller: boolean;
+}
+
+interface SellerFormModalProps {
+  visible: boolean;
+  onClose: () => void;
+  sellerForm: SellerForm;
+  setSellerForm: React.Dispatch<React.SetStateAction<SellerForm>>;
+  onSubmitForm: () => void;
+  loading: boolean;
+  subscriptionPrice: number;
+}
+
+interface OrdersTabProps {
+  orders: Order[];
+  onSelectOrder: (order: Order) => void;
+  loading: boolean;
+}
+
+interface ProductsTabProps {
+  products: Product[];
+  onAddProduct: () => void;
+  onEditProduct: (product: Product) => void;
+  onDeleteProduct: (productId: string) => void;
+  loading: boolean;
+}
+
+interface StatsTabProps {
+  stats: {
+    productsCount: number;
+    pendingOrders: number;
+    completedOrders: number;
+    totalRevenue: number;
+    activePromotions: number;
+    averageRating: number;
+  };
+  loading: boolean;
+}
+
+interface ActivityTabProps {
+  activities: UserActivity[];
+  loading: boolean;
+}
+
+interface SettingsTabProps {
+  onLogout: () => void;
+  onDeleteAccount: () => void;
+  userProfile: UserProfile | null;
+  updateProfileSettings: (settings: Partial<UserProfile>) => void;
+  onChangePassword: () => void;
+  onManageAddresses: () => void;
+  onEditProfile: () => void;
+  onOpenReportModal: () => void;
+}
+
+interface EditProfileModalProps {
+  visible: boolean;
+  onClose: () => void;
+  userProfile: UserProfile | null;
+  onSave: (newProfile: { photoUrl?: string | null; phoneNumber?: string | null }) => void;
+  loading: boolean;
+}
+
+interface ReportModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSubmit: (report: { type: Report['type']; description: string }) => void;
+  loading: boolean;
+}
+
+interface ReviewsTabProps {
+  reviews: Review[];
+  loading: boolean;
+}
+
+// =================================================================================
+// STYLES
+// =================================================================================
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    height: 100,
+    paddingTop: 30,
+  },
+  avatarContainer: {
+    position: 'relative',
+  },
+  avatar: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#eee',
+    borderWidth: 2,
+    borderColor: '#ddd',
+  },
+  avatarPlaceholder: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#eee',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  editIconOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 12,
+    padding: 4,
+  },
+  userInfo: {
+    marginLeft: 15,
+    flex: 1,
+  },
+  userName: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  userEmail: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4,
+  },
+  editProfileButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  tabButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    marginHorizontal: 4,
+  },
+  activeTab: {
+    backgroundColor: '#6C63FF',
+  },
+  tabText: {
+    color: '#6C63FF',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  activeTabText: {
+    color: '#fff',
+  },
+  tabContentContainer: {
+    flex: 1,
+    padding: 12,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#555',
+    marginBottom: 8,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: '#666',
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyStateText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#999',
+    textAlign: 'center',
+  },
+  centeredView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalView: {
+    margin: 20,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+    width: '90%',
+  },
+  modalTitleConfirm: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modalText: {
+    marginBottom: 12,
+    textAlign: 'center',
+    fontSize: 15,
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    marginTop: 10,
+    justifyContent: 'center',
+  },
+  actionButton: {
+    padding: 10,
+    borderRadius: 8,
+    marginHorizontal: 8,
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  confirmDeleteButton: {
+    backgroundColor: '#FF6347',
+  },
+  cancelDeleteButton: {
+    backgroundColor: '#eee',
+  },
+  buttonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  modalSafeArea: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
+    textAlign: 'center',
+  },
+  modalContent: {
+    flex: 1,
+    padding: 16,
+  },
+  closeButton: {
+    position: 'absolute',
+    right: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#555',
+    marginBottom: 4,
+    marginTop: 12,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 15,
+    backgroundColor: '#fff',
+  },
+  submitButton: {
+    backgroundColor: '#6C63FF',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  submitButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  cancelButton: {
+    marginTop: 10,
+    alignItems: 'center',
+    padding: 10,
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontSize: 15,
+  },
+  disabledButton: {
+    backgroundColor: '#ccc',
+  },
+  orderStatusHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  orderStatusText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginLeft: 10,
+  },
+  detailSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  detailLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '600',
+  },
+  detailValue: {
+    fontSize: 14,
+    color: '#333',
+    textAlign: 'right',
+  },
+  timelineContainer: {
+    paddingLeft: 12,
+    borderLeftWidth: 2,
+    borderLeftColor: '#ddd',
+    marginTop: 10,
+  },
+  timelineItem: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    position: 'relative',
+  },
+  timelineDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#6C63FF',
+    position: 'absolute',
+    left: -6,
+    top: 4,
+  },
+  timelineContent: {
+    marginLeft: 14,
+  },
+  timelineStatus: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  timelineDate: {
+    fontSize: 12,
+    color: '#999',
+  },
+  timelineNote: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  orderActions: {
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    paddingTop: 16,
+  },
+  confirmOrderButton: {
+    backgroundColor: '#28A745',
+  },
+  shipOrderButton: {
+    backgroundColor: '#FFC107',
+  },
+  deliverButton: {
+    backgroundColor: '#6C63FF',
+  },
+  statusPending: {
+    color: '#FFC107',
+  },
+  statusConfirmed: {
+    color: '#007BFF',
+  },
+  statusShipped: {
+    color: '#6C63FF',
+  },
+  statusDelivered: {
+    color: '#28A745',
+  },
+  statusCancelled: {
+    color: '#FF6347',
+  },
+  productsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  addProductButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6C63FF',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+  },
+  addProductButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    marginLeft: 6,
+    fontSize: 14,
+  },
+  productCard: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    marginBottom: 10,
+    padding: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  productImageContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  productImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  productInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  productName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+  },
+  productPrice: {
+    fontSize: 15,
+    color: '#6C63FF',
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  productMeta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  productCategory: {
+    fontSize: 12,
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  productStock: {
+    fontSize: 12,
+    color: '#999',
+  },
+  productActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  editButton: {
+    padding: 6,
+    backgroundColor: '#007BFF',
+    borderRadius: 20,
+    marginLeft: 6,
+  },
+  deleteButton: {
+    padding: 6,
+    backgroundColor: '#FF6347',
+    borderRadius: 20,
+    marginLeft: 6,
+  },
+  filterContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+  },
+  filterButton: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: '#6C63FF',
+    marginBottom: 5,
+  },
+  activeFilter: {
+    backgroundColor: '#6C63FF',
+  },
+  filterText: {
+    color: '#6C63FF',
+    fontSize: 12,
+  },
+  activeFilterText: {
+    color: '#fff',
+  },
+  orderCard: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  orderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  orderId: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#555',
+  },
+  orderStatus: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  orderProduct: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  orderBuyer: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 4,
+  },
+  orderTotal: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#6C63FF',
+    marginTop: 4,
+  },
+  orderFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+  },
+  orderDate: {
+    fontSize: 12,
+    color: '#999',
+  },
+  ordersList: {
+    paddingBottom: 16,
+  },
+  imagePickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E6E4FF',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 10,
+  },
+  imagePickerButtonText: {
+    marginLeft: 10,
+    color: '#6C63FF',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  imagePreviewContainer: {
+    flexDirection: 'row',
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  imagePreviewWrapper: {
+    position: 'relative',
+    marginRight: 10,
+  },
+  imagePreview: {
+    width: 90,
+    height: 90,
+    borderRadius: 8,
+  },
+  deleteImageButton: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+  },
+  formStepContainer: {
+    flex: 1,
+  },
+  formStepTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    textAlign: 'center',
+    color: '#666',
+    marginBottom: 16,
+  },
+  pickerContainer: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    marginTop: 4,
+  },
+  switchContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingVertical: 10,
+  },
+  paymentStepContainer: {
+    flex: 1,
+    alignItems: 'center',
+    padding: 16,
+  },
+  paymentIcon: {
+    marginBottom: 10,
+  },
+  paymentTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 16,
+  },
+  subscriptionCard: {
+    backgroundColor: '#E6E4FF',
+    borderRadius: 12,
+    padding: 20,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  subscriptionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#6C63FF',
+    marginTop: 8,
+  },
+  subscriptionPrice: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#6C63FF',
+    marginTop: 4,
+  },
+  subscriptionPeriod: {
+    fontSize: 13,
+    color: '#6C63FF',
+    opacity: 0.8,
+  },
+  subscriptionFeatures: {
+    marginTop: 12,
+  },
+  featureItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  featureText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#333',
+  },
+  providerButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    marginTop: 10,
+  },
+  providerButton: {
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    minWidth: 90,
+    alignItems: 'center',
+  },
+  selectedProviderButton: {
+    backgroundColor: '#6C63FF',
+    borderColor: '#6C63FF',
+  },
+  providerButtonText: {
+    color: '#333',
+    fontSize: 14,
+  },
+  selectedProviderButtonText: {
+    color: '#fff',
+  },
+  paymentStatusMessage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  paymentStatusText: {
+    marginLeft: 8,
+    color: '#6C63FF',
+  },
+  paymentSuccessText: {
+    marginLeft: 8,
+    color: '#28A745',
+    fontWeight: '600',
+  },
+  paymentFailedText: {
+    marginLeft: 8,
+    color: '#FF6347',
+    fontWeight: '600',
+  },
+  retryButton: {
+    marginLeft: 8,
+  },
+  retryButtonText: {
+    color: '#007BFF',
+    fontWeight: '600',
+  },
+  statCard: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  statIconContainer: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#E6E4FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  statContent: {
+    marginLeft: 14,
+  },
+  statValue: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  statLabel: {
+    fontSize: 13,
+    color: '#666',
+  },
+  activityCard: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  activityHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  activityIcon: {
+    marginRight: 8,
+  },
+  activityType: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+  },
+  activityDescription: {
+    fontSize: 13,
+    color: '#666',
+  },
+  activityTimestamp: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 4,
+    textAlign: 'right',
+  },
+  settingItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  settingLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  settingText: {
+    fontSize: 15,
+    marginLeft: 12,
+    color: '#333',
+  },
+  settingIcon: {
+    width: 30,
+    alignItems: 'center',
+  },
+  logoutButton: {
+    backgroundColor: '#FF6347',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  deleteAccountButton: {
+    backgroundColor: '#FF6347',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  reviewCard: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  reviewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  reviewAuthor: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+  },
+  ratingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  reviewComment: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 4,
+  },
+  reviewDate: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 4,
+    textAlign: 'right',
+  },
+  promotionCard: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  promotionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  promotionCode: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#6C63FF',
+  },
+  promotionStatus: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#28A745',
+  },
+  promotionInfo: {
+    marginTop: 8,
+  },
+  promotionDiscount: {
+    fontSize: 14,
+    color: '#333',
+  },
+  promotionExpiry: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 4,
+  },
+  promotionActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+  },
+  promotionActionButton: {
+    marginLeft: 12,
+  },
+  sellerProfileContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  sellerStatusIcon: {
+    marginBottom: 10,
+  },
+  sellerStatusTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+    color: '#333',
+  },
+  sellerStatusText: {
+    fontSize: 14,
+    textAlign: 'center',
+    color: '#666',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  requestSellerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6C63FF',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+    marginTop: 16,
+  },
+  requestSellerButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+});
+
+// =================================================================================
+// COMPOSANTS ENFANTS
+// =================================================================================
+
+const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ visible, title, message, onConfirm, onCancel, confirmText = "Confirmer", cancelText = "Annuler" }) => {
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    if (visible) {
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        easing: Easing.ease,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      fadeAnim.setValue(0);
+    }
+  }, [visible, fadeAnim]);
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={styles.centeredView}>
+        <Animated.View style={[styles.modalView, { opacity: fadeAnim }]}>
+          <Ionicons name="alert-circle-outline" size={50} color="#FFC107" style={{ marginBottom: 15 }} />
+          <Text style={styles.modalTitleConfirm}>{title}</Text>
+          <Text style={styles.modalText}>{message}</Text>
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity style={[styles.actionButton, styles.confirmDeleteButton]} onPress={onConfirm}>
+              <Text style={styles.buttonText}>{confirmText}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.actionButton, styles.cancelDeleteButton]} onPress={onCancel}>
+              <Text style={[styles.buttonText, { color: '#333' }]}>{cancelText}</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+};
+
+
+
+
+
+
+
+
+
+const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+
+
+
+
+
+const ProductModal: React.FC<ProductModalProps> = ({ visible, onClose, product, sellerId, onProductSaved }) => {
   const [name, setName] = useState(product?.name || '');
   const [description, setDescription] = useState(product?.description || '');
   const [price, setPrice] = useState(product?.price || '');
   const [category, setCategory] = useState(product?.category || '');
+  const [stock, setStock] = useState(product?.stock ? String(product.stock) : '0');
   const [images, setImages] = useState<string[]>(product?.images || []);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (product) {
-      setName(product.name);
-      setDescription(product.description);
-      setPrice(product.price);
-      setCategory(product.category);
-      setImages(product.images || []);
-    } else {
-      setName('');
-      setDescription('');
-      setPrice('');
-      setCategory('');
-      setImages([]);
-    }
-  }, [product]);
-
-  const handlePickImage = async () => {
-    const permissionResult = await ImagePickerExpo.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert('Permission refusée', 'Autorisez l\'accès à la galerie.');
+  const handlePickImage = useCallback(async () => {
+    const { status } = await ImagePickerExpo.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission refusée', "Veuillez autoriser l'accès à votre galerie dans les paramètres.");
       return;
     }
 
@@ -162,55 +1324,57 @@ const ProductModal: React.FC<ProductModalProps> = ({
       allowsEditing: true,
       aspect: [4, 3],
       quality: 0.7,
-      base64: true,
     });
 
     if (pickerResult.canceled || !pickerResult.assets || pickerResult.assets.length === 0) return;
 
     try {
-      const manipulatedImage = await ImageManipulator.manipulateAsync(
-        pickerResult.assets[0].uri,
-        [{ resize: { width: 800 } }],
-        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-      );
-
-      if (manipulatedImage.base64) {
-        setImages(prev => [...prev, manipulatedImage.base64!]);
-      }
+      setLoading(true);
+      const imageUri = pickerResult.assets[0].uri;
+      const imagePath = `products/${sellerId}/${Date.now()}_${imageUri.split('/').pop()}`;
+      const imageUrl = await uploadImageAsync(imageUri, imagePath);
+      
+      setImages((prev: string[]) => [...prev, imageUrl]);
     } catch (error) {
-      console.error('Erreur traitement image: ', error);
-      Alert.alert('Erreur', 'Impossible de traiter l\'image');
+      console.error('Erreur upload image: ', error);
+      Alert.alert('Erreur', "Impossible d'uploader l'image.");
+    } finally {
+      setLoading(false);
     }
-  };
-
+  }, [sellerId]);
   const handleSaveProduct = async () => {
-    if (!name || !description || !price || !category || images.length === 0) {
-      Alert.alert('Erreur', 'Veuillez remplir tous les champs et ajouter au moins une image.');
+    if (!name || !description || !price || !category || images.length === 0 || !stock) {
+      Alert.alert('Champs requis', 'Veuillez remplir tous les champs et ajouter au moins une image.');
+      return;
+    }
+
+    if (parseInt(stock) < 0) {
+      Alert.alert('Stock invalide', 'Le stock ne peut pas être négatif.');
       return;
     }
 
     setLoading(true);
     try {
+      const productData = {
+        name,
+        description,
+        price: parseFloat(price).toFixed(2),
+        category,
+        images,
+        sellerId,
+        stock: parseInt(stock),
+        createdAt: serverTimestamp(),
+        star: product?.star || 0,
+      };
+
       if (product) {
         await updateDoc(doc(db, 'products', product.id), {
-          name,
-          description,
-          price: parseFloat(price).toFixed(2),
-          category,
-          images,
+          ...productData,
+          updatedAt: serverTimestamp(),
         });
         Alert.alert('Succès', 'Produit mis à jour avec succès !');
       } else {
-        await addDoc(collection(db, 'products'), {
-          name,
-          description,
-          price: parseFloat(price).toFixed(2),
-          category,
-          images,
-          sellerId,
-          createdAt: serverTimestamp(),
-          star: 0,
-        });
+        await addDoc(collection(db, 'products'), productData);
         Alert.alert('Succès', 'Produit ajouté avec succès !');
       }
       onProductSaved();
@@ -223,21 +1387,24 @@ const ProductModal: React.FC<ProductModalProps> = ({
     }
   };
 
+  const handleDeleteImage = (indexToDelete: number) => {
+    setImages((prev: string[]) => prev.filter((_, i) => i !== indexToDelete));
+  };
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.modalSafeArea}>
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{product ? 'Modifier Produit' : 'Ajouter Produit'}</Text>
+            <Text style={styles.modalTitle}>{product ? 'Modifier le Produit' : 'Ajouter un Produit'}</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Ionicons name="close" size={30} color="#333" />
             </TouchableOpacity>
           </View>
-
           <ScrollView style={styles.modalContent}>
             <Text style={styles.inputLabel}>Nom du produit</Text>
-            <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Nom" />
-
+            <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Nom du produit" />
+            
             <Text style={styles.inputLabel}>Description</Text>
             <TextInput
               style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
@@ -246,7 +1413,7 @@ const ProductModal: React.FC<ProductModalProps> = ({
               placeholder="Description détaillée"
               multiline
             />
-
+            
             <Text style={styles.inputLabel}>Prix ($)</Text>
             <TextInput
               style={styles.input}
@@ -255,45 +1422,55 @@ const ProductModal: React.FC<ProductModalProps> = ({
               placeholder="0.00"
               keyboardType="numeric"
             />
-
+            
             <Text style={styles.inputLabel}>Catégorie</Text>
             <TextInput
               style={styles.input}
               value={category}
               onChangeText={setCategory}
-              placeholder="Catégorie (ex: Électronique, Vêtements)"
+              placeholder="Ex: Électronique, Vêtements"
             />
-
-            <Text style={styles.inputLabel}>Images du produit ({images.length} ajoutées)</Text>
+            
+            <Text style={styles.inputLabel}>Stock</Text>
+            <TextInput
+              style={styles.input}
+              value={stock}
+              onChangeText={setStock}
+              placeholder="Quantité disponible"
+              keyboardType="numeric"
+            />
+            
+            <Text style={styles.inputLabel}>Images ({images.length} ajoutée{images.length > 1 ? 's' : ''})</Text>
             <TouchableOpacity style={styles.imagePickerButton} onPress={handlePickImage}>
               <Ionicons name="image-outline" size={24} color="#6C63FF" />
-              <Text style={styles.imagePickerButtonText}>Ajouter une image</Text>
+              <Text style={styles.imagePickerButtonText}>Choisir une image</Text>
             </TouchableOpacity>
+            
             {images.length > 0 && (
-              <ScrollView horizontal style={styles.imagePreviewContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imagePreviewContainer}>
                 {images.map((imgBase64, index) => (
                   <View key={index} style={styles.imagePreviewWrapper}>
                     <Image source={{ uri: `data:image/jpeg;base64,${imgBase64}` }} style={styles.imagePreview} />
                     <TouchableOpacity
                       style={styles.deleteImageButton}
-                      onPress={() => setImages(prev => prev.filter((_, i) => i !== index))}
+                      onPress={() => handleDeleteImage(index)}
                     >
-                      <Ionicons name="close-circle" size={20} color="#FF6347" />
+                      <Ionicons name="close-circle" size={24} color="#FF6347" />
                     </TouchableOpacity>
                   </View>
                 ))}
               </ScrollView>
             )}
-
+            
             <TouchableOpacity
-              style={styles.submitButton}
+              style={[styles.submitButton, loading && styles.disabledButton]}
               onPress={handleSaveProduct}
               disabled={loading}
             >
               {loading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.submitButtonText}>{product ? 'Sauvegarder les modifications' : 'Ajouter Produit'}</Text>
+                <Text style={styles.submitButtonText}>{product ? 'Sauvegarder' : 'Ajouter le Produit'}</Text>
               )}
             </TouchableOpacity>
             <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
@@ -306,26 +1483,30 @@ const ProductModal: React.FC<ProductModalProps> = ({
   );
 };
 
-interface OrderModalProps {
-  visible: boolean;
-  onClose: () => void;
-  order: Order | null;
-  onStatusChange: (orderId: string, newStatus: Order['status']) => void;
-  isSeller: boolean;
-}
-
 const OrderModal: React.FC<OrderModalProps> = ({ visible, onClose, order, onStatusChange, isSeller }) => {
+  const [trackingNumber, setTrackingNumber] = useState(order?.trackingNumber || '');
+  const [statusNote, setStatusNote] = useState('');
+  
   if (!order) return null;
 
-  const statusMap = {
-    pending: { text: 'En attente', style: styles.statusPending },
-    confirmed: { text: 'Confirmée', style: styles.statusConfirmed },
-    delivered: { text: 'Livrée', style: styles.statusDelivered },
-    cancelled: { text: 'Annulée', style: styles.statusCancelled },
+  const statusMap: Record<Order['status'], { text: string; style: StyleProp<TextStyle>; icon: string }> = {
+    pending: { text: 'En attente', style: styles.statusPending, icon: 'hourglass-outline' },
+    confirmed: { text: 'Confirmée', style: styles.statusConfirmed, icon: 'checkmark-circle-outline' },
+    shipped: { text: 'Expédiée', style: styles.statusShipped, icon: 'car-outline' },
+    delivered: { text: 'Livrée', style: styles.statusDelivered, icon: 'checkmark-done-outline' },
+    cancelled: { text: 'Annulée', style: styles.statusCancelled, icon: 'close-circle-outline' },
   };
 
   const currentStatus = statusMap[order.status] || statusMap.pending;
 
+  const handleStatusChangeAction = (newStatus: Order['status']) => {
+    if (isSeller && newStatus === 'shipped' && !trackingNumber) {
+      Alert.alert('Numéro de suivi requis', 'Veuillez entrer un numéro de suivi avant d\'expédier la commande.');
+      return;
+    }
+    onStatusChange(order.id, newStatus, trackingNumber, statusNote);
+  };
+    
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.modalSafeArea}>
@@ -336,69 +1517,141 @@ const OrderModal: React.FC<OrderModalProps> = ({ visible, onClose, order, onStat
               <Ionicons name="close" size={30} color="#333" />
             </TouchableOpacity>
           </View>
-
           <ScrollView style={styles.modalContent}>
-            <Text style={styles.detailLabel}>ID Commande:</Text>
-            <Text style={styles.detailValue}>#{order.id.slice(0, 10)}</Text>
+            <View style={styles.orderStatusHeader}>
+              <Ionicons name={currentStatus.icon as any} size={30} color={(currentStatus.style as any).color} />
+              <Text style={[styles.orderStatusText, currentStatus.style]}>{currentStatus.text}</Text>
+            </View>
+            
+            <View style={styles.detailSection}>
+              <Text style={styles.detailLabel}>ID Commande:</Text>
+              <Text style={styles.detailValue}>#{order.id.slice(0, 10)}</Text>
+            </View>
+            
+            <View style={styles.detailSection}>
+              <Text style={styles.detailLabel}>Produit:</Text>
+              <Text style={styles.detailValue}>{order.productName}</Text>
+            </View>
+            
+            <View style={styles.detailSection}>
+              <Text style={styles.detailLabel}>Quantité:</Text>
+              <Text style={styles.detailValue}>{order.quantity}</Text>
+            </View>
+            
+            <View style={styles.detailSection}>
+              <Text style={styles.detailLabel}>Prix Total:</Text>
+              <Text style={styles.detailValue}>{(order.totalPrice || 0).toFixed(2)} $</Text>
+            </View>
+            
+            <View style={styles.detailSection}>
+              <Text style={styles.detailLabel}>Acheteur:</Text>
+              <Text style={styles.detailValue}>{order.buyerName}</Text>
+            </View>
+            
+            <View style={styles.detailSection}>
+              <Text style={styles.detailLabel}>Lieu de Livraison:</Text>
+              <Text style={styles.detailValue}>{order.deliveryLocation}</Text>
+            </View>
+            
+            <View style={styles.detailSection}>
+              <Text style={styles.detailLabel}>Adresse de Livraison:</Text>
+              <Text style={styles.detailValue}>{order.deliveryAddress}</Text>
+            </View>
+            
+            <View style={styles.detailSection}>
+              <Text style={styles.detailLabel}>Date de la commande:</Text>
+              <Text style={styles.detailValue}>{order.createdAt?.toDate().toLocaleString()}</Text>
+            </View>
+            
+            {isSeller && order.status === 'shipped' && (
+              <View style={styles.detailSection}>
+                <Text style={styles.detailLabel}>Numéro de suivi:</Text>
+                <Text style={styles.detailValue}>{order.trackingNumber || 'Non renseigné'}</Text>
+              </View>
+            )}
 
-            <Text style={styles.detailLabel}>Produit:</Text>
-            <Text style={styles.detailValue}>{order.productName}</Text>
+            {/* Historique du statut */}
+            <Text style={styles.sectionSubtitle}>Historique du statut</Text>
+            <View style={styles.timelineContainer}>
+              {order.statusHistory?.map((status, index) => (
+                <View key={index} style={styles.timelineItem}>
+                  <View style={styles.timelineDot} />
+                  <View style={styles.timelineContent}>
+                    <Text style={[styles.timelineStatus, statusMap[status.status].style]}>
+                      {statusMap[status.status].text}
+                    </Text>
+                    <Text style={styles.timelineDate}>
+                      {moment(status.timestamp.toDate()).format('DD MMM YYYY, HH:mm')}
+                    </Text>
+                    {status.note && (
+                      <Text style={styles.timelineNote}>{status.note}</Text>
+                    )}
+                  </View>
+                </View>
+              ))}
+            </View>
 
-            <Text style={styles.detailLabel}>Quantité:</Text>
-            <Text style={styles.detailValue}>{order.quantity}</Text>
-
-            <Text style={styles.detailLabel}>Prix Total:</Text>
-            <Text style={styles.detailValue}>{(order.totalPrice || 0).toFixed(2)} $</Text>
-
-            <Text style={styles.detailLabel}>Acheteur:</Text>
-            <Text style={styles.detailValue}>{order.buyerName}</Text>
-
-            <Text style={styles.detailLabel}>Lieu de Livraison:</Text>
-            <Text style={styles.detailValue}>{order.deliveryLocation}</Text>
-
-            <Text style={styles.detailLabel}>Adresse de Livraison:</Text>
-            <Text style={styles.detailValue}>{order.deliveryAddress}</Text>
-
-            <Text style={styles.detailLabel}>Date de la commande:</Text>
-            <Text style={styles.detailValue}>
-              {order.createdAt?.toDate().toLocaleString()}
-            </Text>
-
-            <Text style={styles.detailLabel}>Statut:</Text>
-            <Text style={[styles.detailValue, currentStatus.style]}>
-              {currentStatus.text}
-            </Text>
-
+            {/* Actions pour le vendeur */}
             {isSeller && (
               <View style={styles.orderActions}>
                 {order.status === 'pending' && (
                   <TouchableOpacity
-                    style={[styles.submitButton, styles.confirmButton]}
-                    onPress={() => onStatusChange(order.id, 'confirmed')}
+                    style={[styles.submitButton, styles.confirmOrderButton]}
+                    onPress={() => handleStatusChangeAction('confirmed')}
+
                   >
                     <Text style={styles.submitButtonText}>Confirmer la Commande</Text>
                   </TouchableOpacity>
                 )}
+                
                 {order.status === 'confirmed' && (
+                  <>
+                    <Text style={styles.inputLabel}>Numéro de suivi</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={trackingNumber}
+                      onChangeText={setTrackingNumber}
+                      placeholder="Entrez le numéro de suivi"
+                    />
+                    <TouchableOpacity
+                      style={[styles.submitButton, styles.shipOrderButton]}
+                      onPress={() => handleStatusChangeAction('shipped')}
+                    >
+                      <Text style={styles.submitButtonText}>Marquer comme Expédié</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+                
+                {order.status === 'shipped' && (
                   <TouchableOpacity
                     style={[styles.submitButton, styles.deliverButton]}
-                    onPress={() => onStatusChange(order.id, 'delivered')}
+                    onPress={() => handleStatusChangeAction('delivered')}
                   >
                     <Text style={styles.submitButtonText}>Marquer comme Livrée</Text>
                   </TouchableOpacity>
                 )}
+                
                 {(order.status === 'pending' || order.status === 'confirmed') && (
-                  <TouchableOpacity
-                    style={[styles.cancelButton, { marginTop: 10 }]}
-                    onPress={() => onStatusChange(order.id, 'cancelled')}
-                  >
-                    <Text style={styles.cancelButtonText}>Annuler la Commande</Text>
-                  </TouchableOpacity>
+                  <>
+                    <Text style={styles.inputLabel}>Note (optionnelle)</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={statusNote}
+                      onChangeText={setStatusNote}
+                      placeholder="Ajouter une note"
+                    />
+                    <TouchableOpacity
+                      style={[styles.cancelButton, { marginTop: 10 }]}
+                      onPress={() => handleStatusChangeAction('cancelled')}
+                    >
+                      <Text style={styles.cancelButtonText}>Annuler la Commande</Text>
+                    </TouchableOpacity>
+                  </>
                 )}
               </View>
             )}
-
-            <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+            
+            <TouchableOpacity style={[styles.cancelButton, { marginTop: 20 }]} onPress={onClose}>
               <Text style={styles.cancelButtonText}>Fermer</Text>
             </TouchableOpacity>
           </ScrollView>
@@ -408,41 +1661,14 @@ const OrderModal: React.FC<OrderModalProps> = ({ visible, onClose, order, onStat
   );
 };
 
-
-interface SellerFormModalProps {
-  visible: boolean;
-  onClose: () => void;
-  sellerForm: SellerForm;
-  setSellerForm: React.Dispatch<React.SetStateAction<SellerForm>>;
-  onSubmitForm: () => void;
-  onInitiatePayment: (phoneNumber: string, provider: string) => void;
-  loading: boolean;
-  currentStep: number;
-  setCurrentStep: React.Dispatch<React.SetStateAction<number>>;
-  paymentLoading: boolean;
-  paymentStatus: 'idle' | 'pending' | 'success' | 'failed';
-  paymentPhoneNumber: string;
-  setPaymentPhoneNumber: React.Dispatch<React.SetStateAction<string>>;
-  selectedProvider: string | null;
-  setSelectedProvider: React.Dispatch<React.SetStateAction<string | null>>;
-}
-
 const SellerFormModal: React.FC<SellerFormModalProps> = ({
   visible,
   onClose,
   sellerForm,
   setSellerForm,
   onSubmitForm,
-  onInitiatePayment,
   loading,
-  currentStep,
-  setCurrentStep,
-  paymentLoading,
-  paymentStatus,
-  paymentPhoneNumber,
-  setPaymentPhoneNumber,
-  selectedProvider,
-  setSelectedProvider,
+  subscriptionPrice
 }) => {
   const isFormValid = useMemo(() => {
     return (
@@ -455,202 +1681,170 @@ const SellerFormModal: React.FC<SellerFormModalProps> = ({
     );
   }, [sellerForm]);
 
-  const handlePaymentInitiation = () => {
-    if (!paymentPhoneNumber || !selectedProvider) {
-      Alert.alert("Erreur", "Veuillez entrer votre numéro de téléphone et sélectionner un fournisseur.");
-      return;
-    }
-    onInitiatePayment(paymentPhoneNumber, selectedProvider);
-  };
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+  <SafeAreaView style={styles.modalSafeArea}>
+    <View style={styles.modalContainer}>
+      <View style={styles.modalHeader}>
+        <Text style={styles.modalTitle}>Devenir Vendeur</Text>
+        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+          <Ionicons name="close" size={30} color="#333" />
+        </TouchableOpacity>
+      </View>
+      <ScrollView style={styles.modalContent}>
+        <View style={styles.formStepContainer}>
+          <Text style={styles.formStepTitle}>Informations du Vendeur</Text>
+          <Text style={styles.modalSubtitle}>Remplissez ces informations pour enregistrer votre profil vendeur.</Text>
+          
+          <Text style={styles.inputLabel}>Nom de la Boutique</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: Mon Super Magasin"
+            value={sellerForm.shopName}
+            onChangeText={text => setSellerForm(prev => ({ ...prev, shopName: text }))}
+          />
 
-  const renderFormStep = () => {
-    switch (currentStep) {
-      case 1:
-        return (
-          <View style={styles.formStepContainer}>
-            <Text style={styles.formStepTitle}>Informations du Vendeur</Text>
-            <Text style={styles.modalSubtitle}>
-              Remplissez ces informations pour enregistrer votre profil vendeur.
-            </Text>
+          <Text style={styles.inputLabel}>Type de pièce</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={sellerForm.idType}
+              onValueChange={itemValue => setSellerForm(prev => ({ ...prev, idType: itemValue }))}>
+              <Picker.Item label="Sélectionnez un type" value="" />
+              <Picker.Item label="Carte d'identité" value="CNI" />
+              <Picker.Item label="Passeport" value="Passeport" />
+              <Picker.Item label="Permis de conduire" value="Permis" />
+            </Picker>
+          </View>
 
-            <Text style={styles.inputLabel}>Nom de la Boutique</Text>
+          <Text style={styles.inputLabel}>Numéro de la pièce</Text>
+          {/* 🔥 Ajout de l’input manquant */}
+          <TextInput
+            style={styles.input}
+            placeholder="Ex: 0123456789"
+            value={sellerForm.idNumber}
+            onChangeText={text => setSellerForm(prev => ({ ...prev, idNumber: text }))}
+          />
+
+          <Text style={styles.inputLabel}>Catégorie d'activité</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={sellerForm.businessDescription}
+              onValueChange={itemValue => setSellerForm(prev => ({ ...prev, businessDescription: itemValue }))}>
+              <Picker.Item label="Sélectionnez une catégorie" value="" />
+              <Picker.Item label="Vêtements" value="Vêtements" />
+              <Picker.Item label="Électronique" value="Électronique" />
+              <Picker.Item label="Alimentation" value="Alimentation" />
+              <Picker.Item label="Autre" value="Autre" />
+            </Picker>
+          </View>
+
+          <Text style={styles.inputLabel}>Numéro de Téléphone</Text>
+          {/* 🔥 Champ téléphone avec préfixe +243 */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#ccc', borderRadius: 8, paddingHorizontal: 10 }}>
+            <Text style={{ marginRight: 5, fontWeight: 'bold' }}>+243</Text>
             <TextInput
-              style={styles.input}
-              placeholder="Ex: Mon Super Magasin"
-              value={sellerForm.shopName}
-              onChangeText={text => setSellerForm(prev => ({ ...prev, shopName: text }))}
-            />
-
-            <Text style={styles.inputLabel}>Type de pièce</Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={sellerForm.idType}
-                onValueChange={(itemValue) =>
-                  setSellerForm(prev => ({ ...prev, idType: itemValue }))
-                }>
-                <Picker.Item label="Sélectionnez un type" value="" />
-                <Picker.Item label="Carte d'identité" value="CNI" />
-                <Picker.Item label="Passeport" value="Passeport" />
-                <Picker.Item label="Permis de conduire" value="Permis" />
-              </Picker>
-            </View>
-
-            <Text style={styles.inputLabel}>Numéro de la pièce</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ex: ABC123456"
-              value={sellerForm.idNumber}
-              onChangeText={text => setSellerForm(prev => ({ ...prev, idNumber: text }))}
-            />
-
-            <Text style={styles.inputLabel}>Catégorie d'activité</Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={sellerForm.businessDescription}
-                onValueChange={(itemValue) =>
-                  setSellerForm(prev => ({ ...prev, businessDescription: itemValue }))
-                }>
-                <Picker.Item label="Sélectionnez une catégorie" value="" />
-                <Picker.Item label="Vêtements" value="Vêtements" />
-                <Picker.Item label="Électronique" value="Électronique" />
-                <Picker.Item label="Alimentation" value="Alimentation" />
-                <Picker.Item label="Autre" value="Autre" />
-              </Picker>
-            </View>
-
-            <Text style={styles.inputLabel}>Numéro de Téléphone</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="+243 999 999 999"
+              style={{ flex: 1, height: 40 }}
+              placeholder="999 999 999"
               keyboardType="phone-pad"
               value={sellerForm.phoneNumber}
-              onChangeText={text => setSellerForm(prev => ({ ...prev, phoneNumber: text }))}
+              onChangeText={text => {
+                // On s’assure que ça commence toujours par 9
+                let formatted = text.replace(/[^0-9]/g, '');
+                if (formatted && !formatted.startsWith('9')) {
+                  formatted = '9' + formatted;
+                }
+                setSellerForm(prev => ({ ...prev, phoneNumber: formatted }));
+              }}
+              maxLength={9} // 🔥 numéro congolais = 9 chiffres
             />
-
-            <Text style={styles.inputLabel}>Ville / Province</Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={sellerForm.location}
-                onValueChange={(itemValue) =>
-                  setSellerForm(prev => ({ ...prev, location: itemValue }))
-                }>
-                <Picker.Item label="Sélectionnez une ville" value="" />
-                <Picker.Item label="Kinshasa, Gombe" value="Kinshasa, Gombe" />
-                <Picker.Item label="Lubumbashi, Haut-Katanga" value="Lubumbashi, Haut-Katanga" />
-                <Picker.Item label="Goma, Nord-Kivu" value="Goma, Nord-Kivu" />
-              </Picker>
-            </View>
-
-            <Text style={styles.inputLabel}>Adresse Complète</Text>
-            <TextInput
-              style={[styles.input, { height: 60, textAlignVertical: 'top' }]}
-              placeholder="Ex: Av. De la Paix, Q. Les Volcans, N°123"
-              value={sellerForm.address}
-              onChangeText={text => setSellerForm(prev => ({ ...prev, address: text }))}
-              multiline
-            />
-
-            <View style={styles.switchContainer}>
-              <Text style={styles.inputLabel}>J'ai plus de 18 ans</Text>
-              <Switch
-                trackColor={{ false: '#767577', true: '#6C63FF' }}
-                thumbColor={sellerForm.isAdult ? '#6C63FF' : '#f4f3f4'}
-                ios_backgroundColor="#3e3e3e"
-                onValueChange={value => setSellerForm(prev => ({ ...prev, isAdult: value }))}
-                value={sellerForm.isAdult}
-              />
-            </View>
-
-            <TouchableOpacity style={styles.submitButton} onPress={onSubmitForm} disabled={loading || !isFormValid}>
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.submitButtonText}>Envoyer la demande</Text>
-              )}
-            </TouchableOpacity>
           </View>
-        );
-      case 2:
-        return (
-          <View style={styles.paymentStepContainer}>
-            <Ionicons name="wallet-outline" size={60} color="#6C63FF" style={styles.paymentIcon} />
-            <Text style={styles.paymentTitle}>Paiement d'activation Vendeur</Text>
-            <Text style={styles.paymentDescription}>
-              Un dépôt mensuel de <Text style={styles.paymentAmount}>{PAYMENT_AMOUNT} CDF</Text> est requis pour activer votre compte vendeur.
-              Ce montant couvre les frais de maintenance et de support.
-            </Text>
 
-            <Text style={styles.inputLabel}>Votre numéro de téléphone Pawapay</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ex: 243812345678"
-              keyboardType="phone-pad"
-              value={paymentPhoneNumber}
-              onChangeText={setPaymentPhoneNumber}
-              maxLength={12}
-            />
-
-            <Text style={styles.inputLabel}>Sélectionnez votre fournisseur</Text>
-            <View style={styles.providerButtonsContainer}>
-              <TouchableOpacity
-                style={[styles.providerButton, selectedProvider === 'VODACOM_MPESA_COD' && styles.selectedProviderButton]}
-                onPress={() => setSelectedProvider('VODACOM_MPESA_COD')}
-              >
-                {/* L'image doit être gérée localement, assurez-vous que les chemins sont corrects */}
-                {/* <Image source={require('@/assets/images/vodacom.png')} style={styles.providerIcon} /> */}
-                <Text style={[styles.providerButtonText, selectedProvider === 'VODACOM_MPESA_COD' && styles.selectedProviderButtonText]}>Vodacom</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.providerButton, selectedProvider === 'ORANGE_COD' && styles.selectedProviderButton]}
-                onPress={() => setSelectedProvider('ORANGE_COD')}
-              >
-                {/* <Image source={require('@/assets/images/orange.png')} style={styles.providerIcon} /> */}
-                <Text style={[styles.providerButtonText, selectedProvider === 'ORANGE_COD' && styles.selectedProviderButtonText]}>Orange</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.providerButton, selectedProvider === 'AIRTEL_COD' && styles.selectedProviderButton]}
-                onPress={() => setSelectedProvider('AIRTEL_COD')}
-              >
-                {/* <Image source={require('@/assets/images/airtel.png')} style={styles.providerIcon} /> */}
-                <Text style={[styles.providerButtonText, selectedProvider === 'AIRTEL_COD' && styles.selectedProviderButtonText]}>Airtel</Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              style={styles.submitButton}
-              onPress={handlePaymentInitiation}
-              disabled={paymentLoading || !paymentPhoneNumber || !selectedProvider}
-            >
-              {paymentLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.submitButtonText}>Payer {PAYMENT_AMOUNT} CDF</Text>
-              )}
-            </TouchableOpacity>
-
-            {paymentStatus === 'pending' && (
-              <View style={styles.paymentStatusMessage}>
-                <ActivityIndicator size="small" color="#6C63FF" />
-                <Text style={styles.paymentStatusText}>Traitement du paiement...</Text>
-              </View>
-            )}
-            {paymentStatus === 'success' && (
-              <View style={styles.paymentStatusMessage}>
-                <Ionicons name="checkmark-circle" size={24} color="#28A745" />
-                <Text style={styles.paymentSuccessText}>Paiement réussi ! Votre statut de vendeur est mis à jour.</Text>
-              </View>
-            )}
-            {paymentStatus === 'failed' && (
-              <View style={styles.paymentStatusMessage}>
-                <Ionicons name="close-circle" size={24} color="#FF6347" />
-                <Text style={styles.paymentFailedText}>Paiement échoué. Veuillez réessayer.</Text>
-              </View>
-            )}
+          <Text style={styles.inputLabel}>Ville Kananga </Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={sellerForm.location}
+              onValueChange={itemValue => setSellerForm(prev => ({ ...prev, location: itemValue }))}>
+              <Picker.Item label="Sélectionnez une commune" value="" />
+              <Picker.Item label="Kananga" value="Kananga" />
+              <Picker.Item label="Ndesha" value="Ndesha" />
+              <Picker.Item label="Nganza" value="Nganza" />
+              <Picker.Item label="Katoka" value="Katoka" />
+              <Picker.Item label="Lukonga" value="Lukonga" />
+            </Picker>
           </View>
-        );
-      default:
-        return null;
+
+          <Text style={styles.inputLabel}>Adresse Complète</Text>
+          <TextInput
+            style={[styles.input, { height: 60, textAlignVertical: 'top' }]}
+            placeholder="Ex: Av. De la Paix, Q. Les Volcans, N°123"
+            value={sellerForm.address}
+            onChangeText={text => setSellerForm(prev => ({ ...prev, address: text }))}
+            multiline
+          />
+
+          <View style={styles.switchContainer}>
+            <Text style={styles.inputLabel}>J'ai plus de 18 ans</Text>
+            <Switch
+              trackColor={{ false: '#767577', true: '#6C63FF' }}
+              thumbColor={sellerForm.isAdult ? '#6C63FF' : '#f4f3f4'}
+              ios_backgroundColor="#3e3e3e"
+              onValueChange={value => setSellerForm(prev => ({ ...prev, isAdult: value }))}
+              value={sellerForm.isAdult}
+            />
+          </View>
+          
+          <TouchableOpacity 
+            style={[styles.submitButton, (loading || !isFormValid) && styles.disabledButton]} 
+            onPress={onSubmitForm} 
+            disabled={loading || !isFormValid}
+          >
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Envoyer la demande</Text>}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </View>
+  </SafeAreaView>
+</Modal>
+  );
+};
+
+
+
+
+const EditProfileModal: React.FC<EditProfileModalProps> = ({ visible, onClose, userProfile, onSave, loading }) => {
+  const { authUser } = useAuth(); // Ajouter useAuth
+  const [phoneNumber, setPhoneNumber] = useState(userProfile?.phoneNumber || '');
+  const [photoUrl, setPhotoUrl] = useState<string | null>(userProfile?.photoUrl || null);
+
+  const handlePickImage = useCallback(async () => {
+    const { status } = await ImagePickerExpo.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission refusée', "Veuillez autoriser l'accès à votre galerie dans les paramètres.");
+      return;
     }
+
+    const pickerResult = await ImagePickerExpo.launchImageLibraryAsync({
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+
+    if (pickerResult.canceled || !pickerResult.assets || pickerResult.assets.length === 0) return;
+
+    try {
+      const imageUri = pickerResult.assets[0].uri;
+      const imagePath = `profiles/${authUser?.id}/${Date.now()}_${imageUri.split('/').pop()}`;
+      const uploadedUrl = await uploadImageAsync(imageUri, imagePath);
+      
+      setPhotoUrl(uploadedUrl);
+    } catch (error) {
+      console.error('Erreur upload image: ', error);
+      Alert.alert('Erreur', "Impossible d'uploader l'image.");
+    }
+  }, [authUser]);
+
+  const handleSave = () => {
+    onSave({ photoUrl, phoneNumber }); // Changer photoBase64 par photoUrl
   };
 
   return (
@@ -658,15 +1852,67 @@ const SellerFormModal: React.FC<SellerFormModalProps> = ({
       <SafeAreaView style={styles.modalSafeArea}>
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Devenir Vendeur</Text>
+            <Text style={styles.modalTitle}>Modifier le Profil</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Ionicons name="close" size={30} color="#333" />
             </TouchableOpacity>
           </View>
-
           <ScrollView style={styles.modalContent}>
-            {renderFormStep()}
-            <TouchableOpacity style={styles.cancelButton} onPress={onClose} disabled={paymentLoading}>
+            <Text style={styles.inputLabel}>Photo de profil</Text>
+            <View style={styles.avatarContainer}>
+              {photoUrl ? (
+                <Image source={{ uri: photoUrl }} style={styles.avatar} />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  <Ionicons name="person" size={60} color="#ccc" />
+                </View>
+              )}
+              <TouchableOpacity style={styles.editIconOverlay} onPress={handlePickImage}>
+                <Ionicons name="camera" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.inputLabel}>Numéro de téléphone</Text>
+<View style={{ 
+  flexDirection: 'row', 
+  alignItems: 'center', 
+  borderWidth: 1, 
+  borderColor: '#ccc', 
+  borderRadius: 8, 
+  paddingHorizontal: 10 
+}}>
+  <Text style={{ marginRight: 5, fontWeight: 'bold' }}>+243</Text>
+  <TextInput
+    style={{ flex: 1, height: 40 }}
+    value={phoneNumber}
+    onChangeText={(text) => {
+      // Supprime tout sauf les chiffres
+      let formatted = text.replace(/[^0-9]/g, '');
+      // Forcer à commencer par 9
+      if (formatted && !formatted.startsWith('9')) {
+        formatted = '9' + formatted;
+      }
+      setPhoneNumber(formatted);
+    }}
+    placeholder="999 999 999"
+    keyboardType="phone-pad"
+    maxLength={9} 
+  />
+</View>
+
+
+            <TouchableOpacity
+              style={[styles.submitButton, loading && styles.disabledButton]}
+              onPress={handleSave}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.submitButtonText}>Sauvegarder</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
               <Text style={styles.cancelButtonText}>Annuler</Text>
             </TouchableOpacity>
           </ScrollView>
@@ -676,58 +1922,130 @@ const SellerFormModal: React.FC<SellerFormModalProps> = ({
   );
 };
 
-// --- Composants de Tab ---
 
-interface OrdersTabProps {
-  orders: Order[];
-  onSelectOrder: (order: Order) => void;
-}
 
-interface StatsTabProps {
-  stats: {
-    productsCount: number;
-    pendingOrders: number;
-    completedOrders: number;
-    totalRevenue: number;
-  };
-}
 
-interface ProductsTabProps {
-  products: Product[];
-  onAddProduct: () => void;
-  onEditProduct: (product: Product) => void;
-  onDeleteProduct: (productId: string) => void;
-}
 
-interface MessagesTabProps {
-  sellerId: string | undefined;
-}
 
-const OrdersTab: React.FC<OrdersTabProps> = ({ orders, onSelectOrder }) => {
+
+
+
+
+
+
+
+
+
+
+// Fonction pour uploader une image vers Firebase Storage
+const uploadImageAsync = async (uri: string, path: string): Promise<string> => {
+  const response = await fetch(uri);
+  const blob = await response.blob();
+  
+  const storageRef = ref(storage, path);
+  await uploadBytes(storageRef, blob);
+  
+  return await getDownloadURL(storageRef);
+};
+
+
+// en haut de ton composant Profile (ou dans le bon onglet)
+const [transactionId, setTransactionId] = useState("");
+const [smsMessage, setSmsMessage] = useState("");
+const operatorId = userProfile?.uid || ""; // ID de l’utilisateur connecté
+
+const { authUser } = useAuth();
+
+
+const sendManualConfirmation = async (
+  transactionId: string,
+  confirmationMessage: string,
+  operatorId: string,
+  authUser: UserProfile | null
+) => {
+  if (!authUser) {
+    Alert.alert('Erreur', "Utilisateur non connecté.");
+    return;
+  }
+
+  try {
+    await addDoc(collection(db, 'manual-confirm'), {
+      transactionId,
+      confirmationMessage,
+      operatorId,
+      createdAt: serverTimestamp(),
+      user: {
+  id: authUser.id,
+  email: authUser.email,
+  name: authUser.name,
+  isSellerVerified: authUser.isSellerVerified ?? false,
+  photoUrl: authUser.photoUrl ?? null,
+  phoneNumber: authUser.phoneNumber ?? null,
+  sellerForm: authUser.sellerForm || null,
+},
+    });
+
+    Alert.alert('Succès', 'Le message de confirmation a été envoyé.');
+  } catch (error) {
+    console.error("Erreur lors de l'envoi de la confirmation manuelle: ", error);
+    Alert.alert('Erreur', "Impossible d'envoyer le message de confirmation.");
+  }
+};
+
+
+
+
+
+const OrdersTab: React.FC<OrdersTabProps> = ({ orders, onSelectOrder, loading }) => {
+  const [filter, setFilter] = useState<'all' | Order['status']>('all');
+  const filteredOrders = filter === 'all' ? orders : orders.filter(order => order.status === filter);
+  const statusCounts = useMemo(() => {
+    return orders.reduce((acc, order) => {
+      acc[order.status] = (acc[order.status] || 0) + 1;
+      return acc;
+    }, {} as Record<Order['status'], number>);
+  }, [orders]);
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+        <Text style={styles.loadingText}>Chargement des commandes...</Text>
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.sectionTitle}>Vos Commandes ({orders.length})</Text>
-
-      {orders.length > 0 ? (
+    <View style={styles.tabContentContainer}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Vos Commandes ({orders.length})</Text>
+        <View style={styles.filterContainer}>
+          <TouchableOpacity style={[styles.filterButton, filter === 'all' && styles.activeFilter]} onPress={() => setFilter('all')} >
+            <Text style={[styles.filterText, filter === 'all' && styles.activeFilterText]}>Toutes</Text>
+          </TouchableOpacity>
+          {Object.entries(statusCounts).map(([status, count]) => (
+            <TouchableOpacity key={status} style={[styles.filterButton, filter === status && styles.activeFilter]} onPress={() => setFilter(status as Order['status'])} >
+              <Text style={[styles.filterText, filter === status && styles.activeFilterText]}>
+                {status.charAt(0).toUpperCase() + status.slice(1)} ({count})
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+      {filteredOrders.length > 0 ? (
         <FlatList
-          data={orders}
+          data={filteredOrders}
           renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.orderCard}
-              onPress={() => onSelectOrder(item)}
-            >
+            <TouchableOpacity style={styles.orderCard} onPress={() => onSelectOrder(item)}>
               <View style={styles.orderHeader}>
                 <Text style={styles.orderId}>#{item.id.slice(0, 8)}</Text>
-                <Text style={[
-                  styles.orderStatus,
-                  item.status === 'pending' ? styles.statusPending :
-                  item.status === 'confirmed' ? styles.statusConfirmed :
-                  item.status === 'delivered' ? styles.statusDelivered :
-                  styles.statusCancelled
-                ]}>
-                  {item.status === 'pending' ? 'En attente' :
-                   item.status === 'confirmed' ? 'Confirmée' :
-                   item.status === 'delivered' ? 'Livrée' : 'Annulée'}
+                <Text
+                  style={[
+                    styles.orderStatus,
+                    item.status === 'pending' ? styles.statusPending : item.status === 'confirmed' ? styles.statusConfirmed : item.status === 'shipped' ? styles.statusShipped : item.status === 'delivered' ? styles.statusDelivered : styles.statusCancelled
+                  ]}
+                >
+                  {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
                 </Text>
               </View>
               <Text style={styles.orderProduct}>{item.productName}</Text>
@@ -746,1423 +2064,1273 @@ const OrdersTab: React.FC<OrdersTabProps> = ({ orders, onSelectOrder }) => {
       ) : (
         <View style={styles.emptyState}>
           <Ionicons name="receipt-outline" size={60} color="#ccc" />
-          <Text style={styles.emptyStateText}>Aucune commande pour le moment</Text>
+          <Text style={styles.emptyStateText}>Aucune commande pour le moment.</Text>
         </View>
       )}
     </View>
   );
 };
 
-const StatsTab: React.FC<StatsTabProps> = ({ stats }) => (
-  <View style={styles.statsContainer}>
-    {[
-      { label: 'Produits', value: stats.productsCount, icon: 'cube-outline' },
-      { label: 'Commandes en attente', value: stats.pendingOrders, icon: 'hourglass-outline' },
-      { label: 'Commandes terminées', value: stats.completedOrders, icon: 'checkmark-done-outline' },
-      { label: 'Revenu Total', value: `$${stats.totalRevenue.toFixed(2)}`, icon: 'cash-outline' }
-    ].map((stat, index) => (
-      <View key={index} style={styles.statCard}>
-        <Ionicons name={stat.icon as any} size={30} color="#6C63FF" />
-        <Text style={styles.statValue}>{stat.value}</Text>
-        <Text style={styles.statLabel}>{stat.label}</Text>
-      </View>
-    ))}
-  </View>
-);
-
-const ProductsTab: React.FC<ProductsTabProps> = ({
-  products,
-  onAddProduct,
-  onEditProduct,
-  onDeleteProduct
-}) => {
-  const ProductSellerItem: React.FC<{ item: Product }> = ({ item }) => (
-    <View style={styles.productSellerCard}>
-      {item.images && item.images.length > 0 ? (
-        <Image source={{ uri: `data:image/jpeg;base64,${item.images[0]}` }} style={styles.productSellerImage} />
-      ) : (
-        <View style={styles.noProductSellerImage}>
-          <Ionicons name="image-outline" size={40} color="#ccc" />
-        </View>
-      )}
-      <View style={styles.productSellerDetails}>
-        <Text style={styles.productSellerName}>{item.name}</Text>
-        <Text style={styles.productSellerPrice}>{parseFloat(item.price).toFixed(2)} $</Text>
-        <Text style={styles.productSellerCategory}>{item.category}</Text>
-        <View style={styles.starRatingContainer}>
-          {[...Array(5)].map((_, i) => (
-            <Ionicons
-              key={i}
-              name={i < item.star ? "star" : "star-outline"}
-              size={16}
-              color="#FFD700"
-            />
-          ))}
-        </View>
-      </View>
-      <View style={styles.productSellerActions}>
-        <TouchableOpacity onPress={() => onEditProduct(item)} style={styles.actionButton}>
-          <Ionicons name="create-outline" size={24} color="#6C63FF" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => onDeleteProduct(item.id)} style={styles.actionButton}>
-          <Ionicons name="trash-outline" size={24} color="#FF6347" />
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  return (
-    <View style={styles.container}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.sectionTitle}>Vos Produits ({products.length})</Text>
-     
-      </View>
-
-      {products.length > 0 ? (
-        <FlatList
-          data={products}
-          renderItem={({ item }) => <ProductSellerItem item={item} />}
-          keyExtractor={item => item.id}
-          contentContainerStyle={{ paddingBottom: 20 }}
-        />
-      ) : (
-        <View style={styles.emptyStateSection}>
-          <Ionicons name="cube-outline" size={60} color="#ccc" />
-          <Text style={styles.emptyStateSectionText}>
-            Vous n'avez pas encore de produits en vente
-          </Text>
-          <TouchableOpacity
-            style={styles.publishButton}
-            onPress={onAddProduct}
-          >
-            <Ionicons name="add" size={20} color="#FFFFFF" />
-            <Text style={styles.publishButtonText}>Publier votre premier produit</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
-  );
-};
-
-const MessagesTab: React.FC<MessagesTabProps> = ({ sellerId }) => {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!sellerId) {
-      setLoading(false);
-      return;
-    };
-
-    const q = query(
-      collection(db, 'chats'),
-      where('participants', 'array-contains', sellerId),
-      orderBy('lastMessage.timestamp', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const convosPromises = snapshot.docs.map(async docSnapshot => {
-        const data = docSnapshot.data();
-        const otherParticipantId = data.participants.find((p: string) => p !== sellerId);
-        let otherParticipantName = `Client #${otherParticipantId?.slice(0, 6)}`;
-
-        if (otherParticipantId) {
-          try {
-            const userDoc = await getDoc(doc(db, 'users', otherParticipantId));
-            if (userDoc.exists()) {
-              otherParticipantName = (userDoc.data() as UserProfile).name || otherParticipantName;
-            }
-          } catch (error) {
-            console.error("Error fetching other participant name:", error);
-          }
-        }
-
-        const unreadCount = data.unreadCounts?.[sellerId] || 0;
-
-        return {
-          id: docSnapshot.id,
-          participants: data.participants,
-          lastMessage: data.lastMessage,
-          unreadCounts: data.unreadCounts,
-          otherParticipant: otherParticipantId,
-          otherParticipantName,
-          unreadCount,
-        } as Conversation;
-      });
-
-      const convos = await Promise.all(convosPromises);
-      setConversations(convos);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching conversations:", error);
-      setLoading(false);
-      Alert.alert("Erreur", "Impossible de charger vos conversations.");
-    });
-
-    return () => unsubscribe();
-  }, [sellerId]);
-
-  const handleOpenChat = (conversationId: string) => {
-    router.push(`/chat`);
-  };
-
+const ProductsTab: React.FC<ProductsTabProps> = ({ products, onAddProduct, onEditProduct, onDeleteProduct, loading }) => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#6C63FF" />
-        <Text style={styles.loadingText}>Chargement des conversations...</Text>
+        <Text style={styles.loadingText}>Chargement des produits...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.sectionTitle}>Vos Conversations ({conversations.length})</Text>
-      {conversations.length > 0 ? (
+    <View style={styles.tabContentContainer}>
+      <View style={styles.productsHeader}>
+        <Text style={styles.sectionTitle}>Vos Produits ({products.length})</Text>
+        <TouchableOpacity style={styles.addProductButton} onPress={onAddProduct}>
+          <Ionicons name="add-circle-outline" size={24} color="#fff" />
+          <Text style={styles.addProductButtonText}>Ajouter</Text>
+        </TouchableOpacity>
+      </View>
+      {products.length > 0 ? (
         <FlatList
-          data={conversations}
+          data={products}
           renderItem={({ item }) => (
-            <TouchableOpacity style={styles.conversationCard} onPress={() => handleOpenChat(item.id)} >
-              <View style={styles.conversationAvatar}>
-                <Ionicons name="person-circle-outline" size={40} color="#6C63FF" />
-              </View>
-              <View style={styles.conversationInfo}>
-                <Text style={styles.conversationName}>{item.otherParticipantName}</Text>
-                <Text style={styles.conversationLastMessage} numberOfLines={1} >
-                  {item.lastMessage?.text || 'Aucun message'}
-                </Text>
-              </View>
-              <View style={styles.conversationMeta}>
-                <Text style={styles.conversationTime}>
-                  {item.lastMessage?.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </Text>
-                {item.unreadCount && item.unreadCount > 0 && (
-                  <View style={styles.unreadBadge}>
-                    <Text style={styles.unreadCount}>{item.unreadCount}</Text>
-                  </View>
+            <View style={styles.productCard}>
+              <View style={styles.productImageContainer}>
+                {item.images && item.images.length > 0 ? (
+                  <Image source={{ uri: item.images[0] }} style={styles.productImage} />
+                ) : (
+                  <Ionicons name="image-outline" size={50} color="#999" />
                 )}
               </View>
-            </TouchableOpacity>
+              <View style={styles.productInfo}>
+                <Text style={styles.productName}>{item.name}</Text>
+                <Text style={styles.productPrice}>{item.price} $</Text>
+                <View style={styles.productMeta}>
+                  <Text style={styles.productCategory}>{item.category}</Text>
+                  <Text style={styles.productStock}>Stock: {item.stock || 0}</Text>
+                </View>
+              </View>
+              <View style={styles.productActions}>
+                <TouchableOpacity style={styles.editButton} onPress={() => onEditProduct(item)}>
+                  <Ionicons name="create-outline" size={20} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.deleteButton} onPress={() => onDeleteProduct(item.id)}>
+                  <Ionicons name="trash-outline" size={20} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </View>
           )}
           keyExtractor={item => item.id}
-          contentContainerStyle={styles.conversationsList}
+          
         />
       ) : (
         <View style={styles.emptyState}>
-          <Ionicons name="chatbubbles-outline" size={60} color="#ccc" />
-          <Text style={styles.emptyStateText}>Aucune conversation pour le moment.</Text>
+          <Ionicons name="bag-handle-outline" size={60} color="#ccc" />
+          <Text style={styles.emptyStateText}>Aucun produit ajouté pour le moment.</Text>
         </View>
       )}
     </View>
   );
 };
-export default function ProfileScreen() {
-  const { user, logout, isAuthenticated } = useAuth();
-  const router = useRouter();
-  // --- ETATS ---
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [editingName, setEditingName] = useState(false);
-  const [newDisplayName, setNewDisplayName] = useState('');
-  const [showSellerFormModal, setShowSellerFormModal] = useState(false);
-  const [sellerForm, setSellerForm] = useState<SellerForm>({ shopName: '', idNumber: '', isAdult: false, idType: '', businessDescription: '', phoneNumber: '', location: '', address: '', });
-  const [sellerFormStep, setSellerFormStep] = useState(1);
-  const [paymentLoading, setPaymentLoading] = useState(false);
-  const [paymentStatus, setPaymentStatus] = useState<'idle' | 'pending' | 'success' | 'failed'>('idle');
-  const [paymentPhoneNumber, setPaymentPhoneNumber] = useState('');
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [showProductModal, setShowProductModal] = useState(false);
-  const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
-  const [loadingData, setLoadingData] = useState(true);
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [orderModalVisible, setOrderModalVisible] = useState(false);
-  const [activeTab, setActiveTab] = useState<'stats' | 'products' | 'orders' | 'messages'>('stats');
-  const [refreshing, setRefreshing] = useState(false);
-  // Calcul des statistiques
-  const stats = useMemo(() => {
-    const pendingOrders = orders.filter((o: Order) => o.status === 'pending' || o.status === 'confirmed').length;
-    const completedOrders = orders.filter((o: Order) => o.status === 'delivered').length;
-    const totalRevenue = orders
-      .filter((o: Order) => o.status === 'delivered')
-      .reduce((sum: number, o: Order) => sum + (o.totalPrice || 0), 0);
-    return { pendingOrders, completedOrders, totalRevenue, productsCount: products.length };
-  }, [orders, products]);
-  // --- EFFETS ---
-  // Effet pour charger le profil utilisateur
+
+const StatsTab: React.FC<StatsTabProps> = ({ stats, loading }) => {
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+        <Text style={styles.loadingText}>Calcul des statistiques...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView style={styles.tabContentContainer}>
+      <Text style={styles.sectionTitle}>Statistiques de Vente</Text>
+      <View style={styles.statCard}>
+        <View style={[styles.statIconContainer, { backgroundColor: '#E6E4FF' }]}>
+          <Ionicons name="cube-outline" size={30} color="#6C63FF" />
+        </View>
+        <View style={styles.statContent}>
+          <Text style={styles.statValue}>{stats.productsCount || 0}</Text>
+          <Text style={styles.statLabel}>Produits en ligne</Text>
+        </View>
+      </View>
+      <View style={styles.statCard}>
+        <View style={[styles.statIconContainer, { backgroundColor: '#D4EDDA' }]}>
+          <Ionicons name="checkmark-done-circle-outline" size={30} color="#28A745" />
+        </View>
+        <View style={styles.statContent}>
+          <Text style={styles.statValue}>{stats.completedOrders || 0}</Text>
+          <Text style={styles.statLabel}>Commandes livrées</Text>
+        </View>
+      </View>
+      <View style={styles.statCard}>
+        <View style={[styles.statIconContainer, { backgroundColor: '#FFEDD5' }]}>
+          <Ionicons name="hourglass-outline" size={30} color="#FFC107" />
+        </View>
+        <View style={styles.statContent}>
+          <Text style={styles.statValue}>{stats.pendingOrders || 0}</Text>
+          <Text style={styles.statLabel}>Commandes en attente</Text>
+        </View>
+      </View>
+      <View style={styles.statCard}>
+        <View style={[styles.statIconContainer, { backgroundColor: '#F8D7DA' }]}>
+          <Ionicons name="cash-outline" size={30} color="#FF6347" />
+        </View>
+        <View style={styles.statContent}>
+          <Text style={styles.statValue}>{(stats.totalRevenue || 0).toFixed(2)} $</Text>
+          <Text style={styles.statLabel}>Revenu total</Text>
+        </View>
+      </View>
+      <View style={styles.statCard}>
+        <View style={[styles.statIconContainer, { backgroundColor: '#D1ECF1' }]}>
+          <Ionicons name="star-outline" size={30} color="#17A2B8" />
+        </View>
+        <View style={styles.statContent}>
+          <Text style={styles.statValue}>{(stats.averageRating || 0).toFixed(1)}</Text>
+          <Text style={styles.statLabel}>Note moyenne</Text>
+        </View>
+      </View>
+    </ScrollView>
+  );
+};
+
+const ActivityTab: React.FC<ActivityTabProps> = ({ activities, loading }) => {
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+        <Text style={styles.loadingText}>Chargement des activités...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.tabContentContainer}>
+      <Text style={styles.sectionTitle}>Votre Activité Récente</Text>
+      {activities.length > 0 ? (
+        <FlatList
+          data={activities}
+          renderItem={({ item }) => (
+            <View style={styles.activityCard}>
+              <View style={styles.activityHeader}>
+                <Ionicons name="arrow-forward-circle-outline" size={24} color="#6C63FF" style={styles.activityIcon} />
+                <Text style={styles.activityType}>{item.type.replace('_', ' ').split(' ').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}</Text>
+              </View>
+              <Text style={styles.activityDescription}>{item.description}</Text>
+              <Text style={styles.activityTimestamp}>{moment(item.timestamp.toDate()).fromNow()}</Text>
+            </View>
+          )}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.ordersList}
+        />
+      ) : (
+        <View style={styles.emptyState}>
+          <Ionicons name="list-outline" size={60} color="#ccc" />
+          <Text style={styles.emptyStateText}>Aucune activité récente.</Text>
+        </View>
+      )}
+    </View>
+  );
+};
+
+const SettingsTab: React.FC<SettingsTabProps> = ({ onLogout, onDeleteAccount, userProfile, updateProfileSettings, onChangePassword, onManageAddresses, onEditProfile, onOpenReportModal }) => {
+  const [notificationsEnabled, setNotificationsEnabled] = useState(userProfile?.notificationsEnabled || false);
+
   useEffect(() => {
-    if (!user?.id) {
-      setLoading(false);
-      setProfile(null);
+    setNotificationsEnabled(userProfile?.notificationsEnabled || false);
+  }, [userProfile]);
+
+  const toggleNotifications = (value: boolean) => {
+    setNotificationsEnabled(value);
+    updateProfileSettings({ notificationsEnabled: value });
+  };
+
+  return (
+    <ScrollView style={styles.tabContentContainer}>
+      <Text style={styles.sectionTitle}>Paramètres du Compte</Text>
+      <TouchableOpacity style={styles.settingItem} onPress={onEditProfile}>
+        <View style={styles.settingLeft}>
+          <View style={styles.settingIcon}>
+            <Ionicons name="person-circle-outline" size={24} color="#6C63FF" />
+          </View>
+          <Text style={styles.settingText}>Modifier le profil</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#ccc" />
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.settingItem} onPress={onManageAddresses}>
+        <View style={styles.settingLeft}>
+          <View style={styles.settingIcon}>
+            <Ionicons name="location-outline" size={24} color="#6C63FF" />
+          </View>
+          <Text style={styles.settingText}>Gérer les adresses</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#ccc" />
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.settingItem} onPress={onChangePassword}>
+        <View style={styles.settingLeft}>
+          <View style={styles.settingIcon}>
+            <Ionicons name="lock-closed-outline" size={24} color="#6C63FF" />
+          </View>
+          <Text style={styles.settingText}>Changer le mot de passe</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#ccc" />
+      </TouchableOpacity>
+      <View style={styles.settingItem}>
+        <View style={styles.settingLeft}>
+         
+          <View style={styles.settingIcon}>
+            <Ionicons name="notifications-outline" size={24} color="#6C63FF" />
+          </View>
+          <Text style={styles.settingText}>Notifications</Text>
+        </View>
+        <Switch
+          trackColor={{ false: '#767577', true: '#6C63FF' }}
+          thumbColor={notificationsEnabled ? '#fff' : '#f4f3f4'}
+          ios_backgroundColor="#3e3e3e"
+          onValueChange={toggleNotifications}
+          value={notificationsEnabled}
+        />
+      </View>
+      <Text style={styles.sectionTitle}>Assistance</Text>
+      <TouchableOpacity style={styles.settingItem} onPress={onOpenReportModal}>
+        <View style={styles.settingLeft}>
+          <View style={styles.settingIcon}>
+            <Ionicons name="bug-outline" size={24} color="#6C63FF" />
+          </View>
+          <Text style={styles.settingText}>Signaler un problème</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#ccc" />
+      </TouchableOpacity>
+      <Text style={styles.sectionTitle}>Danger Zone</Text>
+      <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
+        <Text style={styles.submitButtonText}>Se déconnecter</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.deleteAccountButton} onPress={onDeleteAccount}>
+        <Text style={styles.submitButtonText}>Supprimer le compte</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+};
+
+const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, loading }) => {
+  const [reportType, setReportType] = useState<Report['type']>('technical');
+  const [description, setDescription] = useState('');
+
+  const handleSubmit = () => {
+    if (!description.trim()) {
+      Alert.alert('Champs requis', 'Veuillez décrire le problème.');
       return;
     }
-    const docRef = doc(db, 'users', user.id);
+    onSubmit({ type: reportType, description });
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={styles.modalSafeArea}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Signaler un Problème</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Ionicons name="close" size={30} color="#333" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.modalContent}>
+            <Text style={styles.inputLabel}>Type de rapport</Text>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={reportType}
+                onValueChange={(itemValue) => setReportType(itemValue)}
+              >
+                <Picker.Item label="Problème technique" value="technical" />
+                <Picker.Item label="Problème de paiement" value="payment" />
+                <Picker.Item label="Problème de produit" value="product" />
+                <Picker.Item label="Problème d'utilisateur" value="user" />
+                <Picker.Item label="Autre" value="other" />
+              </Picker>
+            </View>
+            <Text style={styles.inputLabel}>Description</Text>
+            <TextInput
+              style={[styles.input, { height: 150, textAlignVertical: 'top' }]}
+              value={description}
+              onChangeText={setDescription}
+              placeholder="Décrivez le problème en détail..."
+              multiline
+            />
+            <TouchableOpacity
+              style={[styles.submitButton, loading && styles.disabledButton]}
+              onPress={handleSubmit}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.submitButtonText}>Envoyer le rapport</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+              <Text style={styles.cancelButtonText}>Annuler</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+};
+
+
+const ManualConfirmationModal: React.FC<{ 
+  visible: boolean; 
+  onClose: () => void; 
+  onConfirm: (confirmationCode: string, smsMessage: string) => void;
+  loading: boolean;
+  authUser: any;
+}> = ({ visible, onClose, onConfirm, loading, authUser }) => {
+  const [confirmationCode, setConfirmationCode] = useState('');
+  const [smsMessage, setSmsMessage] = useState('');
+
+  useEffect(() => {
+    if (!visible) {
+      setConfirmationCode('');
+      setSmsMessage('');
+    }
+  }, [visible]);
+
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={styles.modalSafeArea}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Confirmation Manuelle</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Ionicons name="close" size={30} color="#333" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.modalContent}>
+            <Text style={styles.modalSubtitle}>
+              Si vous avez reçu un message de confirmation de transaction, veuillez le saisir ci-dessous.
+            </Text>
+            
+            <Text style={styles.inputLabel}>Message de confirmation de confirmation de la transaction selon l'operateur </Text>
+            <TextInput
+              style={styles.input}
+              value={confirmationCode}
+              onChangeText={setConfirmationCode}
+              placeholder="Entrez le message reçu par SMS"
+            />
+            
+          <TouchableOpacity
+  style={styles.submitButton}
+  onPress={() => sendManualConfirmation(
+    transactionId,
+    confirmationCode,
+    operatorId,
+    authUser
+      ? {
+          ...authUser,
+          sellerForm: authUser.sellerForm && 'idNumber' in authUser.sellerForm
+            ? authUser.sellerForm as SellerForm
+            : undefined
+        }
+      : null
+  )}
+>
+  <Text style={styles.submitButtonText}>Envoyer la confirmation</Text>
+</TouchableOpacity>
+
+            
+            <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+              <Text style={styles.cancelButtonText}>Annuler</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+};
+
+
+
+
+
+
+
+
+const ReviewsTab: React.FC<ReviewsTabProps> = ({ reviews, loading }) => {
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+        <Text style={styles.loadingText}>Chargement des avis...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.tabContentContainer}>
+      <Text style={styles.sectionTitle}>Vos Avis (Total: {reviews.length})</Text>
+      {reviews.length > 0 ? (
+        <FlatList
+          data={reviews}
+          renderItem={({ item }) => (
+            <View style={styles.reviewCard}>
+              <View style={styles.reviewHeader}>
+                <Text style={styles.reviewAuthor}>{item.author}</Text>
+                <View style={styles.ratingContainer}>
+                  {[...Array(5)].map((_, i) => (
+                    <Ionicons
+                      key={i}
+                      name={i < item.rating ? "star" : "star-outline"}
+                      size={16}
+                      color="#FFC107"
+                    />
+                  ))}
+                </View>
+              </View>
+              <Text style={styles.reviewComment}>{item.comment}</Text>
+              <Text style={styles.reviewDate}>{moment(item.createdAt?.toDate()).fromNow()}</Text>
+            </View>
+          )}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.ordersList}
+        />
+      ) : (
+        <View style={styles.emptyState}>
+          <Ionicons name="chatbox-outline" size={60} color="#ccc" />
+          <Text style={styles.emptyStateText}>Aucun avis pour le moment.</Text>
+        </View>
+      )}
+    </View>
+  );
+};
+
+const PromotionModal: React.FC<PromotionModalProps> = ({ visible, onClose, onSave }) => {
+  const [code, setCode] = useState('');
+  const [discountPercentage, setDiscountPercentage] = useState('');
+  const [expiryDate, setExpiryDate] = useState<Date | undefined>(undefined);
+
+  const handleSave = () => {
+    if (!code || !discountPercentage || !expiryDate) {
+      Alert.alert('Champs requis', 'Veuillez remplir tous les champs.');
+      return;
+    }
+    const discount = parseInt(discountPercentage);
+    if (isNaN(discount) || discount < 1 || discount > 100) {
+      Alert.alert('Pourcentage invalide', 'Le pourcentage doit être un nombre entre 1 et 100.');
+      return;
+    }
+    onSave({ code, discountPercentage: discount, expiresAt: Timestamp.fromDate(expiryDate) });
+    onClose();
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={styles.modalSafeArea}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Ajouter une Promotion</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Ionicons name="close" size={30} color="#333" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.modalContent}>
+            <Text style={styles.inputLabel}>Code de la promotion</Text>
+            <TextInput
+              style={styles.input}
+              value={code}
+              onChangeText={setCode}
+              placeholder="Ex: ETE2025"
+            />
+            <Text style={styles.inputLabel}>Pourcentage de réduction</Text>
+            <TextInput
+              style={styles.input}
+              value={discountPercentage}
+              onChangeText={setDiscountPercentage}
+              placeholder="Ex: 15"
+              keyboardType="numeric"
+            />
+            <Text style={styles.inputLabel}>Date d'expiration</Text>
+            {/* Vous devrez ajouter un DatePicker ici. Pour l'instant, c'est un TextInput */}
+            <TextInput
+              style={styles.input}
+              placeholder="Ex: YYYY-MM-DD"
+              value={expiryDate ? moment(expiryDate).format('YYYY-MM-DD') : ''}
+              onChangeText={(text) => setExpiryDate(new Date(text))}
+            />
+            <TouchableOpacity style={styles.submitButton} onPress={handleSave}>
+              <Text style={styles.submitButtonText}>Sauvegarder</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+              <Text style={styles.cancelButtonText}>Annuler</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+};
+
+const PromotionsTab: React.FC<PromotionsTabProps> = ({ promotions, onAddPromotion, onTogglePromotion, onDeletePromotion, loading }) => {
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+        <Text style={styles.loadingText}>Chargement des promotions...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.tabContentContainer}>
+      <View style={styles.productsHeader}>
+        <Text style={styles.sectionTitle}>Vos Promotions ({promotions.length})</Text>
+        <TouchableOpacity style={styles.addProductButton} onPress={onAddPromotion}>
+          <Ionicons name="add-circle-outline" size={24} color="#fff" />
+          <Text style={styles.addProductButtonText}>Ajouter</Text>
+        </TouchableOpacity>
+      </View>
+      {promotions.length > 0 ? (
+        <FlatList
+          data={promotions}
+          renderItem={({ item }) => (
+            <View style={styles.promotionCard}>
+              <View style={styles.promotionHeader}>
+                <Text style={styles.promotionCode}>{item.code}</Text>
+                <Text style={[styles.promotionStatus, { color: item.isActive ? '#28A745' : '#666' }]}>
+                  {item.isActive ? 'Active' : 'Inactive'}
+                </Text>
+              </View>
+              <View style={styles.promotionInfo}>
+                <Text style={styles.promotionDiscount}>-{item.discountPercentage}% de réduction</Text>
+                <Text style={styles.promotionExpiry}>Expire le: {moment(item.expiresAt.toDate()).format('DD/MM/YYYY')}</Text>
+              </View>
+              <View style={styles.promotionActions}>
+                <TouchableOpacity style={styles.promotionActionButton} onPress={() => onTogglePromotion(item.id, item.isActive)}>
+                  <Ionicons name={item.isActive ? "pause-circle-outline" : "play-circle-outline"} size={24} color="#007BFF" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.promotionActionButton} onPress={() => onDeletePromotion(item.id)}>
+                  <Ionicons name="trash-outline" size={24} color="#FF6347" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.ordersList}
+        />
+      ) : (
+        <View style={styles.emptyState}>
+          <Ionicons name="pricetag-outline" size={60} color="#ccc" />
+          <Text style={styles.emptyStateText}>Aucune promotion active.</Text>
+        </View>
+      )}
+    </View>
+  );
+};
+
+// =================================================================================
+// COMPOSANT PRINCIPAL
+// =================================================================================
+
+const Profile = () => {
+  const { authUser, logout } = useAuth();
+  const router = useRouter();
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+const [paymentPhoneNumber, setPaymentPhoneNumber] = useState(userProfile?.paymentPhoneNumber || '');
+const [selectedProvider, setSelectedProvider] = useState<string | null>(userProfile?.selectedProvider || null);
+  const [activeTab, setActiveTab] = useState<ActiveTab>('profile');
+  // en haut de ton composant Profile (ou dans le bon onglet)
+const [transactionId, setTransactionId] = useState("");
+const [smsMessage, setSmsMessage] = useState("");
+const operatorId = authUser?.id || ""; // ID de l’utilisateur connecté
+
+  const [loading, setLoading] = useState<LoadingStates>({
+    profile: true,
+    sellerForm: false,
+    payment: false,
+    products: false,
+    orders: false,
+    promotions: false,
+    profileEdit: false,
+    subscriptionPrice: true,
+    reports: false,
+    reviews: false,
+    activity: false,
+  });
+  const [sellerForm, setSellerForm] = useState<SellerForm>({
+    shopName: '',
+    idNumber: '',
+    idType: '',
+    businessDescription: '',
+    phoneNumber: '',
+    location: '',
+    address: '',
+    isAdult: false,
+  });
+  const [currentStep, setCurrentStep] = useState(1);
+  const [manualConfirmationModal, setManualConfirmationModal] = useState(false);
+  const [subscriptionPrice, setSubscriptionPrice] = useState(DEFAULT_SUBSCRIPTION_PRICE);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [activities, setActivities] = useState<UserActivity[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [productModalVisible, setProductModalVisible] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [orderModalVisible, setOrderModalVisible] = useState(false);
+  const [sellerFormModalVisible, setSellerFormModalVisible] = useState(false);
+  const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [confirmationModal, setConfirmationModal] = useState({
+    visible: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+  const [stats, setStats] = useState({
+    productsCount: 0,
+    pendingOrders: 0,
+    completedOrders: 0,
+    totalRevenue: 0,
+    activePromotions: 0,
+    averageRating: 0,
+  });
+
+  const isSeller = userProfile?.isSellerVerified;
+
+  const fetchUserProfile = useCallback(async () => {
+    if (!authUser?.id) return;
+    setLoading(prev => ({ ...prev, profile: true }));
+    const docRef = doc(db, 'users', authUser.id);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data() as UserProfile;
-        setProfile(data);
-        setNewDisplayName(data.name ?? '');
-        setSellerForm(prevForm => ({ shopName: data.sellerForm?.shopName ?? '', idNumber: data.sellerForm?.idNumber ?? '', idType: data.sellerForm?.idType ?? '', isAdult: data.sellerForm?.isAdult ?? false, businessDescription: data.sellerForm?.businessDescription ?? '', phoneNumber: data.sellerForm?.phoneNumber ?? '', location: data.sellerForm?.location ?? '', address: data.sellerForm?.address ?? '', }));
-        if (data.isSellerRequested && !data.isSellerVerified) {
-          setSellerFormStep(2);
-          if (data.paymentId) {
-            setPaymentStatus('pending');
-          } else {
-            setPaymentStatus('idle');
-          }
-        } else if (data.isSellerVerified) {
-          setSellerFormStep(1);
-          setPaymentStatus('success');
-        } else {
-          setSellerFormStep(1);
-          setPaymentStatus('idle');
-        }
+        setUserProfile({ ...data, email: authUser.email! });
       } else {
-        const defaultName = user.name || user.email?.split('@')[0] || 'Nouvel Utilisateur';
-        setDoc(docRef, {
-          email: user.email,
-          name: defaultName,
-          uid: user.id,
-          isSellerRequested: false,
-          isSellerVerified: false,
-          sellerForm: {},
-          sellerRequestId: null,
-          paymentId: null,
-          createdAt: serverTimestamp(),
-        }).then(() => {
-          getDoc(docRef).then(newDocSnap => {
-            if (newDocSnap.exists()) {
-              setProfile(newDocSnap.data() as UserProfile);
-              setNewDisplayName(newDocSnap.data().name ?? '');
-              setSellerForm({ shopName: '', idNumber: '', isAdult: false, idType: '', businessDescription: '', phoneNumber: '', location: '', address: '' });
-            }
-          });
-        }).catch((error) => console.error("Erreur création document utilisateur:", error));
+        Alert.alert("Erreur", "Profil utilisateur introuvable.");
+        setUserProfile({ id: authUser.id, email: authUser.email! });
       }
-      setLoading(false);
-    }, (error) => {
-      console.error("Erreur chargement profil:", error);
-      setLoading(false);
-      Alert.alert("Erreur", "Impossible de charger votre profil.");
+      setLoading(prev => ({ ...prev, profile: false }));
     });
-    return () => unsubscribe();
-  }, [user]);
-  // Effet pour charger les produits et commandes (si vendeur)
-  useEffect(() => {
-    if (!profile?.isSellerVerified || !user?.id) {
-      setLoadingData(false);
-      setProducts([]);
-      setOrders([]);
-      return;
-    }
-    setLoadingData(true);
-    const productsQuery = query(
-      collection(db, 'products'),
-      where('sellerId', '==', user.id),
-      orderBy('createdAt', 'desc')
-    );
-    const unsubProducts = onSnapshot(productsQuery, snap => {
-      const fetchedProducts = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Product[];
+    return unsubscribe;
+  }, [authUser]);
+
+  const fetchSellerData = useCallback(async () => {
+    if (!authUser?.id) return;
+    setLoading(prev => ({ ...prev, products: true, orders: true, promotions: true }));
+
+    const productsQuery = query(collection(db, 'products'), where('sellerId', '==', authUser.id));
+    const ordersQuery = query(collection(db, 'orders'), where('sellerId', '==', authUser.id), orderBy('createdAt', 'desc'));
+    const promotionsQuery = query(collection(db, 'promotions'), where('sellerId', '==', authUser.id));
+
+    const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
+      const fetchedProducts: Product[] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Product[];
       setProducts(fetchedProducts);
-      setLoadingData(false);
-    }, (error) => {
-      console.error("Error fetching products:", error);
-      Alert.alert("Erreur", "Impossible de charger vos produits.");
-      setLoadingData(false);
+      setLoading(prev => ({ ...prev, products: false }));
     });
-    const ordersQuery = query(
-      collection(db, 'orders'),
-      where('sellerId', '==', user.id),
-      orderBy('createdAt', 'desc')
-    );
-    const unsubOrders = onSnapshot(ordersQuery, async (snap) => {
-      const fetchedOrdersPromises = snap.docs.map(async d => {
-        const orderData = d.data() as Omit<Order, 'id' | 'buyerName'> & { buyerId: string };
-        let buyerName = `Utilisateur #${orderData.buyerId.slice(0, 6)}`;
-        try {
-          const buyerDoc = await getDoc(doc(db, 'users', orderData.buyerId));
-          if (buyerDoc.exists()) {
-            buyerName = (buyerDoc.data() as UserProfile).name || buyerName;
-          }
-        } catch (e) {
-          console.error("Error fetching buyer name:", e);
-        }
-        return { id: d.id, ...orderData, buyerName } as Order;
-      });
-      const fetchedOrders = await Promise.all(fetchedOrdersPromises);
+
+    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+      const fetchedOrders: Order[] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Order[];
       setOrders(fetchedOrders);
-      setLoadingData(false);
-    }, (error) => {
-      console.error("Error fetching orders:", error);
-      Alert.alert("Erreur", "Impossible de charger vos commandes.");
-      setLoadingData(false);
+      setLoading(prev => ({ ...prev, orders: false }));
     });
+
+    const unsubscribePromotions = onSnapshot(promotionsQuery, (snapshot) => {
+      const fetchedPromotions: Promotion[] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Promotion[];
+      setPromotions(fetchedPromotions);
+      setLoading(prev => ({ ...prev, promotions: false }));
+    });
+
     return () => {
-      unsubProducts();
-      unsubOrders();
+      unsubscribeProducts();
+      unsubscribeOrders();
+      unsubscribePromotions();
     };
-  }, [profile?.isSellerVerified, user?.id]);
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    // Reload data by re-fetching everything.
-    // The onSnapshot listeners will handle the update.
-    // We just need to wait for a moment to simulate loading.
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setRefreshing(false);
-  }, []);
-  // --- HANDLERS ---
-  const handleGoHome = () => {
-    router.replace('/');
-  };
-  const handleLogout = async () => {
-    await logout();
-    router.replace('/login');
-  };
-  const handleSaveName = async () => {
-    if (!user || !user.id || !newDisplayName.trim()) return;
-    setLoading(true);
+  }, [authUser]);
+
+  const fetchActivities = useCallback(async () => {
+    if (!authUser?.id) return;
+    setLoading(prev => ({ ...prev, activity: true }));
+    const q = query(collection(db, 'activities'), where('userId', '==', authUser.id), orderBy('timestamp', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedActivities: UserActivity[] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as UserActivity[];
+      setActivities(fetchedActivities);
+      setLoading(prev => ({ ...prev, activity: false }));
+    });
+    return unsubscribe;
+  }, [authUser]);
+
+  const fetchReviews = useCallback(async () => {
+    if (!isSeller) return;
+    setLoading(prev => ({ ...prev, reviews: true }));
+    const reviewsRef = collection(db, 'reviews');
+    const productsRef = collection(db, 'products');
+    const productsSnapshot = await getDocs(query(productsRef, where('sellerId', '==', authUser?.id)));
+    const productIds = productsSnapshot.docs.map(doc => doc.id);
+    if (productIds.length > 0) {
+      const q = query(reviewsRef, where('productId', 'in', productIds), orderBy('createdAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const fetchedReviews: Review[] = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Review[];
+        setReviews(fetchedReviews);
+      });
+      setLoading(prev => ({ ...prev, reviews: false }));
+      return unsubscribe;
+    } else {
+      setReviews([]);
+      setLoading(prev => ({ ...prev, reviews: false }));
+    }
+    return () => {};
+  }, [authUser, isSeller]);
+
+  const calculateStats = useCallback(() => {
+    const productsCount = products.length;
+    const pendingOrders = orders.filter(o => o.status === 'pending').length;
+    const completedOrders = orders.filter(o => o.status === 'delivered').length;
+    const totalRevenue = orders.filter(o => o.status === 'delivered').reduce((sum, order) => sum + (order.totalPrice || 0), 0);
+    const activePromotions = promotions.filter(p => p.isActive && p.expiresAt.toDate() > new Date()).length;
+    const averageRating = reviews.length > 0 ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length : 0;
+
+    setStats({
+      productsCount,
+      pendingOrders,
+      completedOrders,
+      totalRevenue,
+      activePromotions,
+      averageRating,
+    });
+  }, [products, orders, promotions, reviews]);
+
+  const fetchSubscriptionPrice = useCallback(async () => {
+    setLoading(prev => ({ ...prev, subscriptionPrice: true }));
+    const docRef = doc(db, SUBSCRIPTION_COLLECTION, 'sellerSubscription');
     try {
-      const userRef = doc(db, 'users', user.id);
-      await updateDoc(userRef, { name: newDisplayName.trim() });
-      setEditingName(false);
-      Alert.alert("Succès", "Votre nom a été mis à jour.");
-    } catch (error) {
-      console.error("Erreur mise à jour nom: ", error);
-      Alert.alert("Erreur", "Impossible de mettre à jour le nom.");
-    } finally {
-      setLoading(false);
-    }
-  };
-  const handleSendSellerRequestForm = async () => {
-    if (!user || !user.id) {
-      Alert.alert("Erreur", "Utilisateur non connecté.");
-      return;
-    }
-    if (!sellerForm.shopName || !sellerForm.idNumber || !sellerForm.businessDescription || !sellerForm.phoneNumber || !sellerForm.location || !sellerForm.address || !sellerForm.isAdult) {
-      Alert.alert("Erreur", "Veuillez remplir tous les champs et confirmer votre âge.");
-      return;
-    }
-    setLoading(true);
-    try {
-      let requestId = profile?.sellerRequestId;
-      if (requestId) {
-        await updateDoc(doc(db, 'sellerRequests', requestId), {
-          sellerFormData: sellerForm,
-          status: 'pending',
-          requestedAt: serverTimestamp(),
-        });
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setSubscriptionPrice(data.price || DEFAULT_SUBSCRIPTION_PRICE);
       } else {
-        const newRequestRef = await addDoc(collection(db, 'sellerRequests'), {
-          userId: user.id,
-          email: user.email,
-          displayName: profile?.name || user.email,
-          status: 'pending',
-          requestedAt: serverTimestamp(),
-          sellerFormData: sellerForm,
-        });
-        requestId = newRequestRef.id;
+        setSubscriptionPrice(DEFAULT_SUBSCRIPTION_PRICE);
       }
-      const userRef = doc(db, 'users', user.id);
-      await updateDoc(userRef, { isSellerRequested: true, sellerRequestId: requestId, extraData: { sellerForm: sellerForm }, paymentId: null, isSellerVerified: false, });
-      Alert.alert(
-        "Demande envoyée !",
-        "Votre demande a été soumise. Veuillez maintenant procéder au paiement pour activer votre compte vendeur.",
-        [{ text: "OK", onPress: () => setSellerFormStep(2) }]
-      );
-    } catch (error) {
-      console.error("Erreur demande vendeur: ", error);
-      Alert.alert("Erreur", "Impossible d'envoyer votre demande.");
+    } catch (e) {
+      console.error("Error fetching subscription price: ", e);
+      setSubscriptionPrice(DEFAULT_SUBSCRIPTION_PRICE);
     } finally {
-      setLoading(false);
+      setLoading(prev => ({ ...prev, subscriptionPrice: false }));
+    }
+  }, []);
+
+  useEffect(() => {
+    let unsubscribeProfile: (() => void) | undefined;
+    const setup = async () => {
+      unsubscribeProfile = await fetchUserProfile();
+    };
+    setup();
+    fetchSubscriptionPrice();
+    return () => {
+      if (unsubscribeProfile) unsubscribeProfile();
+    };
+  }, [fetchUserProfile, fetchSubscriptionPrice]);
+
+  useEffect(() => {
+    let unsubscribeSellerData: (() => void) | undefined;
+    let unsubscribeReviews: (() => void) | undefined;
+
+    if (isSeller) {
+      const setupSeller = async () => {
+        unsubscribeSellerData = await fetchSellerData();
+      };
+      const setupReviews = async () => {
+        unsubscribeReviews = await fetchReviews();
+      };
+      setupSeller();
+      setupReviews();
+    }
+    return () => {
+      if (unsubscribeSellerData) unsubscribeSellerData();
+      if (unsubscribeReviews) unsubscribeReviews();
+    };
+  }, [isSeller, fetchSellerData, fetchReviews]);
+
+  useEffect(() => {
+    let unsubscribeActivities: (() => void) | undefined;
+    const setupActivities = async () => {
+      unsubscribeActivities = await fetchActivities();
+    };
+    setupActivities();
+    return () => {
+      if (unsubscribeActivities) unsubscribeActivities();
+    };
+  }, [fetchActivities]);
+
+  useEffect(() => {
+    if (activeTab === 'stats') {
+      calculateStats();
+    }
+  }, [activeTab, products, orders, promotions, reviews, calculateStats]);
+
+  const handleEditProfile = () => {
+    setEditProfileModalVisible(true);
+  };
+
+  const handleSaveProfile = async (newProfile: { photoUrl?: string | null; phoneNumber?: string | null }) => {
+  if (!authUser?.id) return;
+  setLoading(prev => ({ ...prev, profileEdit: true }));
+  try {
+    await updateDoc(doc(db, 'users', authUser.id), newProfile);
+    Alert.alert('Succès', 'Profil mis à jour avec succès !');
+    setEditProfileModalVisible(false);
+  } catch (e) {
+    console.error("Error updating profile: ", e);
+    Alert.alert('Erreur', 'Impossible de mettre à jour le profil.');
+  } finally {
+    setLoading(prev => ({ ...prev, profileEdit: false }));
+  }
+};
+  const handleDeleteAccount = () => {
+    setConfirmationModal({
+      visible: true,
+      title: 'Supprimer le compte',
+      message: 'Êtes-vous sûr de vouloir supprimer votre compte ? Cette action est irréversible.',
+      onConfirm: async () => {
+        setConfirmationModal({ ...confirmationModal, visible: false });
+        // Logique de suppression du compte ici
+        Alert.alert('Info', 'Fonctionnalité de suppression de compte non implémentée.');
+      },
+    });
+  };
+
+  const handleLogout = () => {
+    setConfirmationModal({
+      visible: true,
+      title: 'Déconnexion',
+      message: 'Êtes-vous sûr de vouloir vous déconnecter ?',
+      onConfirm: async () => {
+        setConfirmationModal({ ...confirmationModal, visible: false });
+        await logout();
+        router.push('/');
+      },
+    });
+  };
+
+
+
+  const handleManualConfirmation = async (confirmationCode: string, smsMessage: string) => {
+  if (!authUser?.id) {
+    Alert.alert("Erreur", "Utilisateur non authentifié");
+    return;
+  }
+
+  setLoading(prev => ({ ...prev, sellerForm: true }));
+  try {
+    await addDoc(collection(db, 'manual-confirm'), {
+      transactionId: confirmationCode?.trim() || "",     // si vide → ""
+      confirmationMessage: smsMessage?.trim() || "",     // si vide → ""
+      operatorId: authUser.id,
+      userEmail: authUser.email || "",
+      userName: authUser.email || "",
+      userPhone: authUser.phoneNumber || "",
+      status: "pending",                                // par défaut
+      createdAt: serverTimestamp(),
+    });
+
+    Alert.alert('Succès', 'Le message de confirmation a été envoyé.');
+    setManualConfirmationModal(false);
+  } catch (error) {
+    console.error("Erreur lors de l'envoi de la confirmation manuelle: ", error);
+    Alert.alert("Erreur", "Impossible d'envoyer le message de confirmation.");
+  } finally {
+    setLoading(prev => ({ ...prev, sellerForm: false }));
+  }
+};
+
+
+
+
+
+
+
+
+
+const handleSellerFormSubmit = async () => {
+  if (!authUser?.id) return;
+  setLoading(prev => ({ ...prev, sellerForm: true }));
+  
+  try {
+    const requestRef = await addDoc(collection(db, 'sellerRequests'), {
+      ...sellerForm,
+      userId: authUser.id,
+      status: 'pending',
+      requestedAt: serverTimestamp(),
+    });
+    
+    await updateDoc(doc(db, 'users', authUser.id), {
+      isSellerRequested: true,
+      sellerForm,
+      sellerRequestId: requestRef.id,
+    });
+
+    router.push(`/subs?phone=${sellerForm.phoneNumber}&provider=${sellerForm.idType}&amount=${subscriptionPrice}&userId=${authUser.id}`);
+    
+  } catch (e) {
+    console.error("Error submitting seller form: ", e);
+    Alert.alert('Erreur', 'Impossible de soumettre le formulaire.');
+  } finally {
+    setLoading(prev => ({ ...prev, sellerForm: false }));
+    setSellerFormModalVisible(false);
+  }
+};
+
+  const handleRestartPayment = () => {
+    if (authUser?.id) {
+      updateDoc(doc(db, 'users', authUser.id), { paymentStatus: 'idle' });
+      setUserProfile(prev => prev ? { ...prev, paymentStatus: 'idle' } : prev);
     }
   };
-  const handlePawapayDeposit = async (phoneNumber: string, provider: string) => {
-    if (!user?.id || !profile?.sellerRequestId) {
-      Alert.alert("Erreur", "Informations utilisateur ou demande vendeur manquantes.");
-      return;
-    }
-    setPaymentLoading(true);
-    setPaymentStatus('pending');
-    const maxRetries = 3;
-    let retries = 0;
-    let delay = 1000;
-    while (retries < maxRetries) {
-      try {
-        const response = await fetch(`${PAWAPAY_WEBHOOK_URL}/initiate-deposit`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            userId: user.id,
-            sellerRequestId: profile.sellerRequestId,
-            phoneNumber: phoneNumber,
-            provider: provider,
-            amount: PAYMENT_AMOUNT,
-            currency: 'CDF',
-            description: `Activation compte vendeur pour ${user.email}`,
-          }),
-        });
-        const result = await response.json();
-        console.log("Pawapay Raw Response:", JSON.stringify(result, null, 2));
-        if (result.status === 'ACCEPTED') {
-          setPaymentStatus('pending');
-          const checkStatus = async () => {
-            const statusResponse = await fetch(`${PAWAPAY_WEBHOOK_URL}/check-deposit`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                depositId: result.depositId,
-              }),
-            });
-            const statusResult = await statusResponse.json();
-            if (statusResult.status === 'SUCCESS') {
-              setPaymentStatus('success');
-              await updateDoc(doc(db, 'users', user.id), {
-                isSellerVerified: true,
-                paymentId: result.depositId,
-                extraData: { paymentDetails: statusResult },
-              });
-              Alert.alert("Paiement réussi", "Votre compte vendeur est maintenant activé !");
-              setPaymentLoading(false);
-            } else if (statusResult.status === 'FAILED' || statusResult.status === 'REJECTED') {
-              setPaymentStatus('failed');
-              await updateDoc(doc(db, 'users', user.id), {
-                paymentId: null,
-                isSellerVerified: false,
-              });
-              Alert.alert("Paiement échoué", "Veuillez réessayer.");
-              setPaymentLoading(false);
-            } else {
-              setTimeout(checkStatus, 5000);
-            }
-          };
-          setTimeout(checkStatus, 5000);
-          return;
-        } else {
-          throw new Error('Pawapay non ACCEPTED');
-        }
-      } catch (error) {
-        console.error(`Attempt ${retries + 1} failed: `, error);
-        retries++;
-        if (retries < maxRetries) {
-          await new Promise(res => setTimeout(res, delay));
-          delay *= 2;
-        }
-      }
-    }
-    setPaymentStatus('failed');
-    setPaymentLoading(false);
-    Alert.alert("Erreur de paiement", "Impossible de démarrer le processus de paiement. Veuillez vérifier vos informations ou réessayer plus tard.");
-  };
+
   const handleAddProduct = () => {
-    setCurrentProduct(null);
-    setShowProductModal(true);
+    setSelectedProduct(null);
+    setProductModalVisible(true);
   };
+
   const handleEditProduct = (product: Product) => {
-    setCurrentProduct(product);
-    setShowProductModal(true);
+    setSelectedProduct(product);
+    setProductModalVisible(true);
   };
-  const handleDeleteProduct = async (productId: string) => {
-    Alert.alert(
-      "Supprimer le produit",
-      "Êtes-vous sûr de vouloir supprimer ce produit ?",
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: "Supprimer",
-          onPress: async () => {
-            try {
-              await deleteDoc(doc(db, 'products', productId));
-              Alert.alert("Succès", "Produit supprimé avec succès.");
-            } catch (error) {
-              console.error("Erreur suppression produit: ", error);
-              Alert.alert("Erreur", "Impossible de supprimer le produit.");
-            }
-          },
-          style: "destructive",
-        },
-      ]
-    );
+
+  const handleDeleteProduct = (productId: string) => {
+    setConfirmationModal({
+      visible: true,
+      title: 'Supprimer le produit',
+      message: 'Êtes-vous sûr de vouloir supprimer ce produit ?',
+      onConfirm: async () => {
+        setConfirmationModal({ ...confirmationModal, visible: false });
+        try {
+          await deleteDoc(doc(db, 'products', productId));
+          Alert.alert('Succès', 'Produit supprimé avec succès !');
+        } catch (e) {
+          console.error("Error deleting product: ", e);
+          Alert.alert('Erreur', 'Impossible de supprimer le produit.');
+        }
+      },
+    });
   };
-  const handleUpdateOrderStatus = async (orderId: string, newStatus: Order['status']) => {
+
+  const handleOrderSelect = (order: Order) => {
+    setSelectedOrder(order);
+    setOrderModalVisible(true);
+  };
+
+  const handleOrderStatusChange = async (orderId: string, newStatus: Order['status'], tracking?: string, note?: string) => {
+    if (!authUser?.id) return;
     try {
-      await updateDoc(doc(db, 'orders', orderId), { status: newStatus });
-      setSelectedOrder(prev => prev ? { ...prev, status: newStatus } : null);
-      Alert.alert("Succès", `Statut de la commande mis à jour en "${newStatus}"`);
-    } catch (error) {
-      console.error("Erreur mise à jour statut de commande: ", error);
-      Alert.alert("Erreur", "Impossible de mettre à jour le statut de la commande.");
+      const orderRef = doc(db, 'orders', orderId);
+      const orderDoc = await getDoc(orderRef);
+      if (orderDoc.exists()) {
+        const orderData = orderDoc.data() as Order;
+        const newStatusHistory = [...(orderData.statusHistory || []), {
+          status: newStatus,
+          timestamp: serverTimestamp(),
+          note: note || '',
+        }];
+
+        const updateData: any = {
+          status: newStatus,
+          statusHistory: newStatusHistory,
+        };
+
+        if (newStatus === 'shipped' && tracking) {
+          updateData.trackingNumber = tracking;
+        }
+
+        await updateDoc(orderRef, updateData);
+        Alert.alert('Succès', `Statut de la commande mis à jour vers "${newStatus}".`);
+      }
+    } catch (e) {
+      console.error("Error updating order status: ", e);
+      Alert.alert('Erreur', 'Impossible de mettre à jour le statut de la commande.');
     }
   };
-  const renderTabContent = () => {
-    if (loadingData) {
-      return (
-        <View style={styles.centeredContainer}>
-          <ActivityIndicator size="large" color="#6C63FF" />
-          <Text style={styles.loadingText}>Chargement des données...</Text>
-        </View>
-      );
+
+  const handleAddPromotion = () => {
+    Alert.alert('Info', 'Fonctionnalité d\'ajout de promotion non implémentée.');
+  };
+
+  const handleTogglePromotion = async (promotionId: string, currentStatus: boolean) => {
+    try {
+      await updateDoc(doc(db, 'promotions', promotionId), {
+        isActive: !currentStatus,
+      });
+      Alert.alert('Succès', `Promotion ${!currentStatus ? 'activée' : 'désactivée'}.`);
+    } catch (e) {
+      Alert.alert('Erreur', 'Impossible de changer le statut de la promotion.');
     }
-    switch (activeTab) {
-      case 'stats':
-        return <StatsTab stats={stats} />;
-      case 'products':
-        return (
-          <ProductsTab
-            products={products}
-            onAddProduct={handleAddProduct}
-            onEditProduct={handleEditProduct}
-            onDeleteProduct={handleDeleteProduct}
-          />
-        );
+  };
+
+  const handleDeletePromotion = (promotionId: string) => {
+    setConfirmationModal({
+      visible: true,
+      title: 'Supprimer la promotion',
+      message: 'Êtes-vous sûr de vouloir supprimer cette promotion ?',
+      onConfirm: async () => {
+        setConfirmationModal({ ...confirmationModal, visible: false });
+        try {
+          await deleteDoc(doc(db, 'promotions', promotionId));
+          Alert.alert('Succès', 'Promotion supprimée avec succès !');
+        } catch (e) {
+          console.error("Error deleting promotion: ", e);
+          Alert.alert('Erreur', 'Impossible de supprimer la promotion.');
+        }
+      },
+    });
+  };
+
+  const handleOpenReportModal = () => {
+    setReportModalVisible(true);
+  };
+
+  const handleReportSubmit = async (report: { type: Report['type']; description: string }) => {
+    if (!authUser?.id) return;
+    setLoading(prev => ({ ...prev, reports: true }));
+    try {
+      await addDoc(collection(db, 'reports'), {
+        ...report,
+        userId: authUser.id,
+        status: 'new',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      Alert.alert('Succès', 'Votre rapport a été soumis. Nous vous répondrons dès que possible.');
+      setReportModalVisible(false);
+    } catch (e) {
+      console.error("Error submitting report: ", e);
+      Alert.alert('Erreur', 'Impossible de soumettre le rapport.');
+    } finally {
+      setLoading(prev => ({ ...prev, reports: false }));
+    }
+  };
+
+  const renderTabContent = () => {
+  switch (activeTab) {
+    case 'profile':
+      return (
+        <ScrollView style={styles.tabContentContainer}>
+          <View style={styles.sellerProfileContainer}>
+            {userProfile?.isSellerRequested && !userProfile.isSellerVerified ? (
+              <>
+                <Ionicons name="hourglass-outline" size={80} color="#FFC107" style={styles.sellerStatusIcon} />
+                <Text style={styles.sellerStatusTitle}>Demande en cours</Text>
+                <TouchableOpacity 
+                  style={[styles.requestSellerButton, { marginTop: 10, backgroundColor: '#FFA500' }]} 
+                  onPress={() => setManualConfirmationModal(true)}
+                >
+                  <Ionicons name="checkmark-circle-outline" size={24} color="#fff" />
+                  <Text style={styles.requestSellerButtonText}>Confirmer manuellement</Text>
+                </TouchableOpacity>
+                <Text style={styles.sellerStatusText}>
+                  Votre demande pour devenir vendeur est en cours de traitement.
+                  {userProfile.paymentStatus === 'pending' && (
+                    "\nPaiement en cours de validation..."
+                  )}
+                </Text>
+              </>
+            ) : userProfile?.isSellerVerified ? (
+              <View style={{ alignItems: 'center', marginTop: 40 }}>
+                <Ionicons name="checkmark-circle" size={80} color="#28A745" style={styles.sellerStatusIcon} />
+                <Text style={styles.sellerStatusTitle}>Vous êtes vendeur vérifié !</Text>
+                <Text style={styles.sellerStatusText}>
+                  Accédez à vos outils de gestion via les onglets ci-dessus.
+                </Text>
+              </View>
+            ) : (
+              <>
+                <Ionicons name="business-outline" size={80} color="#6C63FF" style={styles.sellerStatusIcon} />
+                <Text style={styles.sellerStatusTitle}>Devenir Vendeur</Text>
+                <Text style={styles.sellerStatusText}>
+                  Montez en grade et vendez vos produits sur notre plateforme. Remplissez le formulaire et payez l'abonnement pour commencer.
+                </Text>
+                <TouchableOpacity style={styles.requestSellerButton} onPress={() => setSellerFormModalVisible(true)}>
+                  <Ionicons name="arrow-forward" size={24} color="#fff" />
+                  <Text style={styles.requestSellerButtonText}>Devenir Vendeur</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </ScrollView>
+      );
+      
+      
       case 'orders':
-        return <OrdersTab orders={orders} onSelectOrder={(order) => { setSelectedOrder(order); setOrderModalVisible(true); }} />;
-      case 'messages':
-        return <MessagesTab sellerId={user?.id} />;
+        return <OrdersTab orders={orders} onSelectOrder={handleOrderSelect} loading={loading.orders} />;
+      case 'products':
+        return <ProductsTab products={products} onAddProduct={handleAddProduct} onEditProduct={handleEditProduct} onDeleteProduct={handleDeleteProduct} loading={loading.products} />;
+      case 'stats':
+        return <StatsTab stats={stats} loading={loading.orders || loading.products || loading.promotions || loading.reviews} />;
+      case 'activity':
+        return <ActivityTab activities={activities} loading={loading.activity} />;
+      case 'settings':
+        return <SettingsTab
+          onLogout={handleLogout}
+          onDeleteAccount={handleDeleteAccount}
+          userProfile={userProfile}
+          updateProfileSettings={async (settings) => {
+            if (authUser?.id) {
+              await updateDoc(doc(db, 'users', authUser.id), settings);
+              setUserProfile(prev => prev ? { ...prev, ...settings } : null);
+            }
+          }}
+          onChangePassword={() => Alert.alert('Fonction non disponible', 'La modification du mot de passe n\'est pas encore implémentée.')}
+          onManageAddresses={() => Alert.alert('Fonction non disponible', 'La gestion des adresses n\'est pas encore implémentée.')}
+          onEditProfile={handleEditProfile}
+          onOpenReportModal={handleOpenReportModal}
+        />;
+      case 'promotions':
+        return <PromotionsTab promotions={promotions} onAddPromotion={handleAddPromotion} onTogglePromotion={handleTogglePromotion} onDeletePromotion={handleDeletePromotion} loading={loading.promotions} />;
+      case 'reviews':
+        return <ReviewsTab reviews={reviews} loading={loading.reviews} />;
       default:
         return null;
     }
   };
-  if (loading) {
+
+  if (loading.profile) {
     return (
-      <View style={styles.centeredContainer}>
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#6C63FF" />
         <Text style={styles.loadingText}>Chargement du profil...</Text>
       </View>
     );
   }
-  if (!isAuthenticated || !user || !profile) {
-    return (
-      <View style={styles.centeredContainer}>
-        <Text style={styles.title}>Vous n'êtes pas connecté</Text>
-        <TouchableOpacity style={styles.mainButton} onPress={handleGoHome}>
-          <Text style={styles.mainButtonText}>Aller à l'accueil</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        style={styles.container}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
-      >
+      <ScrollView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={handleLogout} style={styles.headerButton}>
-            <Ionicons name="log-out-outline" size={24} color="#FF6347" />
+          <View style={styles.avatarContainer}>
+            {userProfile?.photoUrl ? (
+  <Image source={{ uri: userProfile.photoUrl }} style={styles.avatar} />
+) : (
+  <View style={styles.avatarPlaceholder}>
+    <Ionicons name="person" size={60} color="#ccc" />
+  </View>
+)}
+          </View>
+          <View style={styles.userInfo}>
+            <Text style={styles.userName}>{userProfile?.name || 'Utilisateur'}</Text>
+            
+            <Text style={styles.userEmail}>{userProfile?.email}</Text>
+          </View>
+          <TouchableOpacity style={styles.editProfileButton} onPress={handleEditProfile}>
+            <Ionicons name="create-outline" size={20} color="#6C63FF" />
           </TouchableOpacity>
         </View>
-        <View style={styles.profileSection}>
-          {profile.photoBase64 ? (
-            <Image source={{ uri: `data:image/jpeg;base64,${profile.photoBase64}` }} style={styles.profileImage} />
-          ) : (
-            <View style={styles.profileImagePlaceholder}>
-              <Ionicons name="person-circle-outline" size={100} color="#ccc" />
-            </View>
-          )}
-          <View style={styles.nameContainer}>
-            {editingName ? (
-              <TextInput
-                style={styles.nameInput}
-                value={newDisplayName}
-                onChangeText={setNewDisplayName}
-                autoFocus
-              />
-            ) : (
-              <Text style={styles.nameText}>{profile.name}</Text>
-            )}
-            <TouchableOpacity onPress={() => setEditingName(!editingName)}>
-              <Ionicons name={editingName ? "checkmark-circle" : "create-outline"} size={24} color="#6C63FF" />
-            </TouchableOpacity>
-          </View>
-          {editingName && (
-            <TouchableOpacity style={styles.saveNameButton} onPress={handleSaveName} disabled={loading}>
-              <Text style={styles.saveNameButtonText}>Sauvegarder</Text>
-            </TouchableOpacity>
-          )}
-          <Text style={styles.emailText}>{profile.email}</Text>
-        </View>
-        <View style={styles.sellerStatusSection}>
-          <Text style={styles.sellerStatusLabel}>Statut Vendeur:</Text>
-          {profile.isSellerVerified ? (
-            <View style={styles.sellerStatusVerified}>
-              <Ionicons name="checkmark-circle" size={24} color="#28A745" />
-              <Text style={styles.sellerStatusText}>Vérifié</Text>
-            </View>
-          ) : profile.isSellerRequested ? (
-            <View style={styles.sellerStatusPending}>
-              <Ionicons name="time-outline" size={24} color="#FFD700" />
-              <Text style={styles.sellerStatusText}>En attente</Text>
-            </View>
-          ) : (
-            <TouchableOpacity style={styles.becomeSellerButton} onPress={() => setShowSellerFormModal(true)}>
-              <Ionicons name="storefront-outline" size={24} color="#fff" />
-              <Text style={styles.becomeSellerButtonText}>Devenir Vendeur</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        {profile.isSellerVerified && (
-          <View>
-            <Text style={styles.sellerDashboardTitle}>Tableau de bord Vendeur</Text>
-            <View style={styles.tabContainer}>
-              <TouchableOpacity
-                style={[styles.tabButton, activeTab === 'stats' && styles.activeTabButton]}
-                onPress={() => setActiveTab('stats')}
-              >
-                <Text style={[styles.tabButtonText, activeTab === 'stats' && styles.activeTabButtonText]}>Statistiques</Text>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer}>
+          <TouchableOpacity style={[styles.tabButton, activeTab === 'profile' && styles.activeTab]} onPress={() => setActiveTab('profile')}>
+            <Text style={[styles.tabText, activeTab === 'profile' && styles.activeTabText]}>Vendeur</Text>
+          </TouchableOpacity>
+          {isSeller && (
+            <>
+              <TouchableOpacity style={[styles.tabButton, activeTab === 'orders' && styles.activeTab]} onPress={() => setActiveTab('orders')}>
+                <Text style={[styles.tabText, activeTab === 'orders' && styles.activeTabText]}>Commandes</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.tabButton, activeTab === 'products' && styles.activeTabButton]}
-                onPress={() => setActiveTab('products')}
-              >
-                <Text style={[styles.tabButtonText, activeTab === 'products' && styles.activeTabButtonText]}>Produits</Text>
+              <TouchableOpacity style={[styles.tabButton, activeTab === 'products' && styles.activeTab]} onPress={() => setActiveTab('products')}>
+                <Text style={[styles.tabText, activeTab === 'products' && styles.activeTabText]}>Produits</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.tabButton, activeTab === 'orders' && styles.activeTabButton]}
-                onPress={() => setActiveTab('orders')}
-              >
-                <Text style={[styles.tabButtonText, activeTab === 'orders' && styles.activeTabButtonText]}>Commandes</Text>
+              <TouchableOpacity style={[styles.tabButton, activeTab === 'stats' && styles.activeTab]} onPress={() => setActiveTab('stats')}>
+                <Text style={[styles.tabText, activeTab === 'stats' && styles.activeTabText]}>Statistiques</Text>
               </TouchableOpacity>
-              
-            </View>
-            {renderTabContent()}
-          </View>
-        )}
-        <View style={{ height: 100 }} />
+              <TouchableOpacity style={[styles.tabButton, activeTab === 'promotions' && styles.activeTab]} onPress={() => setActiveTab('promotions')}>
+                <Text style={[styles.tabText, activeTab === 'promotions' && styles.activeTabText]}>Promos</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.tabButton, activeTab === 'reviews' && styles.activeTab]} onPress={() => setActiveTab('reviews')}>
+                <Text style={[styles.tabText, activeTab === 'reviews' && styles.activeTabText]}>Avis</Text>
+              </TouchableOpacity>
+            </>
+          )}
+          <TouchableOpacity style={[styles.tabButton, activeTab === 'activity' && styles.activeTab]} onPress={() => setActiveTab('activity')}>
+            <Text style={[styles.tabText, activeTab === 'activity' && styles.activeTabText]}>Activité</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.tabButton, activeTab === 'settings' && styles.activeTab]} onPress={() => setActiveTab('settings')}>
+            <Text style={[styles.tabText, activeTab === 'settings' && styles.activeTabText]}>Paramètres</Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {renderTabContent()}
+
+        <SellerFormModal
+  visible={sellerFormModalVisible}
+  onClose={() => setSellerFormModalVisible(false)}
+  sellerForm={sellerForm}
+  setSellerForm={setSellerForm}
+  onSubmitForm={handleSellerFormSubmit}
+  loading={loading.sellerForm}
+  subscriptionPrice={subscriptionPrice}
+/>
+        <ProductModal
+          visible={productModalVisible}
+          onClose={() => setProductModalVisible(false)}
+          product={selectedProduct}
+          sellerId={authUser?.id || ''}
+          onProductSaved={() => {
+            setProductModalVisible(false);
+            setProducts([]); // Trigger reload
+          }}
+        />
+        <OrderModal
+          visible={orderModalVisible}
+          onClose={() => setOrderModalVisible(false)}
+          order={selectedOrder}
+          onStatusChange={handleOrderStatusChange}
+          isSeller={isSeller || false}
+        />
+        <EditProfileModal
+          visible={editProfileModalVisible}
+          onClose={() => setEditProfileModalVisible(false)}
+          userProfile={userProfile}
+          onSave={handleSaveProfile}
+          loading={loading.profileEdit}
+        />
+        <ReportModal
+          visible={reportModalVisible}
+          onClose={() => setReportModalVisible(false)}
+          onSubmit={handleReportSubmit}
+          loading={loading.reports}
+        />
+       
+<ManualConfirmationModal
+  visible={manualConfirmationModal}
+  onClose={() => setManualConfirmationModal(false)}
+  onConfirm={handleManualConfirmation}
+  loading={loading.sellerForm}
+  authUser={authUser} // Ajoutez cette ligne
+/> 
+
+        <ConfirmationModal
+          visible={confirmationModal.visible}
+          title={confirmationModal.title}
+          message={confirmationModal.message}
+          onConfirm={confirmationModal.onConfirm}
+          onCancel={() => setConfirmationModal({ ...confirmationModal, visible: false })}
+        />
       </ScrollView>
-      <SellerFormModal
-        visible={showSellerFormModal}
-        onClose={() => setShowSellerFormModal(false)}
-        sellerForm={sellerForm}
-        setSellerForm={setSellerForm}
-        onSubmitForm={handleSendSellerRequestForm}
-        onInitiatePayment={handlePawapayDeposit}
-        loading={loading}
-        currentStep={sellerFormStep}
-        setCurrentStep={setSellerFormStep}
-        paymentLoading={paymentLoading}
-        paymentStatus={paymentStatus}
-        paymentPhoneNumber={paymentPhoneNumber}
-        setPaymentPhoneNumber={setPaymentPhoneNumber}
-        selectedProvider={selectedProvider}
-        setSelectedProvider={setSelectedProvider}
-      />
-      <OrderModal
-        visible={orderModalVisible}
-        onClose={() => setOrderModalVisible(false)}
-        order={selectedOrder}
-        onStatusChange={handleUpdateOrderStatus}
-        isSeller={profile?.isSellerVerified ?? false}
-      />
     </SafeAreaView>
   );
-}
-const windowWidth = Dimensions.get('window').width;
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f8f8f8',
-  },
-  container: {
-    flex: 1,
-    backgroundColor: '#f8f8f8',
-    paddingHorizontal: 15,
-  },
-  centeredContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8f8f8',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    color: '#333',
-    textAlign: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    marginBottom: 20,
-    marginTop: 10,
-  },
-  headerButton: {
-    padding: 10,
-  },
-  profileSection: {
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  profileImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 3,
-    borderColor: '#6C63FF',
-    marginBottom: 15,
-  },
-  profileImagePlaceholder: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 3,
-    borderColor: '#ccc',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  nameContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 5,
-  },
-  nameText: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    marginRight: 10,
-  },
-  nameInput: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
-    marginRight: 10,
-    paddingVertical: 2,
-    minWidth: 150,
-    textAlign: 'center',
-  },
-  emailText: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 20,
-  },
-  saveNameButton: {
-    marginTop: 5,
-    backgroundColor: '#6C63FF',
-    paddingVertical: 5,
-    paddingHorizontal: 15,
-    borderRadius: 20,
-  },
-  saveNameButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  sellerStatusSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  sellerStatusLabel: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginRight: 10,
-  },
-  sellerStatusVerified: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#e6f7ea',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-  },
-  sellerStatusPending: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff3cd',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-  },
-  sellerStatusText: {
-    marginLeft: 5,
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  becomeSellerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#6C63FF',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 25,
-  },
-  becomeSellerButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    marginLeft: 5,
-  },
-  sellerDashboardTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 20,
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    backgroundColor: '#fff',
-    borderRadius: 25,
-    padding: 5,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 3,
-  },
-  tabButton: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  activeTabButton: {
-    backgroundColor: '#6C63FF',
-  },
-  tabButtonText: {
-    color: '#666',
-    fontWeight: '600',
-  },
-  activeTabButtonText: {
-    color: '#fff',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
-  },
-  // Style for StatsTab
-  statsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  statCard: {
-    width: (windowWidth - 45) / 2, // 15*3 = 45 (padding)
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 20,
-    marginBottom: 15,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 3,
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#6C63FF',
-    marginTop: 10,
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 5,
-    textAlign: 'center',
-  },
-  // Style for ProductsTab
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  addProductButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#6C63FF',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  addProductButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    marginLeft: 5,
-  },
-  productSellerCard: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 10,
-    marginBottom: 10,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 3,
-  },
-  productSellerImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 10,
-    marginRight: 10,
-  },
-  noProductSellerImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 10,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  productSellerDetails: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  productSellerName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  productSellerPrice: {
-    fontSize: 14,
-    color: '#6C63FF',
-    fontWeight: '600',
-  },
-  productSellerCategory: {
-    fontSize: 12,
-    color: '#999',
-  },
-  starRatingContainer: {
-    flexDirection: 'row',
-    marginTop: 5,
-  },
-  productSellerActions: {
-    flexDirection: 'row',
-  },
-  actionButton: {
-    padding: 8,
-    marginLeft: 10,
-  },
-  emptyStateSection: {
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 30,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 3,
-    marginTop: 20,
-  },
-  emptyStateSectionText: {
-    fontSize: 16,
-    color: '#999',
-    marginTop: 10,
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  publishButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#6C63FF',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 25,
-  },
-  publishButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    marginLeft: 5,
-  },
-  // Style for OrdersTab
-  ordersList: {
-    paddingBottom: 20,
-  },
-  orderCard: {
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 15,
-    marginBottom: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 3,
-  },
-  orderHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 5,
-  },
-  orderId: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#666',
-  },
-  orderStatus: {
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  statusPending: { color: '#FFD700' },
-  statusConfirmed: { color: '#6C63FF' },
-  statusDelivered: { color: '#28A745' },
-  statusCancelled: { color: '#FF6347' },
-  orderProduct: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  orderBuyer: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 5,
-  },
-  orderTotal: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#6C63FF',
-    marginTop: 5,
-  },
-  orderFooter: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 10,
-  },
-  orderDate: {
-    fontSize: 12,
-    color: '#999',
-  },
-  emptyState: {
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 3,
-    marginTop: 20,
-  },
-  emptyStateText: {
-    fontSize: 16,
-    color: '#999',
-    marginTop: 10,
-  },
-  // Style for MessagesTab
-  conversationsList: {
-    paddingBottom: 20,
-  },
-  conversationCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 15,
-    marginBottom: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 3,
-  },
-  conversationAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 15,
-  },
-  conversationInfo: {
-    flex: 1,
-  },
-  conversationName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  conversationLastMessage: {
-    fontSize: 14,
-    color: '#666',
-  },
-  conversationMeta: {
-    alignItems: 'flex-end',
-  },
-  conversationTime: {
-    fontSize: 12,
-    color: '#999',
-  },
-  unreadBadge: {
-    backgroundColor: '#FF6347',
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    marginTop: 5,
-  },
-  unreadCount: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 10,
-    color: '#666',
-  },
-  mainButton: {
-    backgroundColor: '#6C63FF',
-    padding: 15,
-    borderRadius: 30,
-    width: '80%',
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  mainButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  modalSafeArea: {
-    flex: 1,
-    backgroundColor: '#f8f8f8',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#f8f8f8',
-    padding: 20,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  modalSubtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 20,
-  },
-  closeButton: {
-    padding: 5,
-  },
-  modalContent: {
-    flex: 1,
-  },
-  inputLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#555',
-    marginBottom: 5,
-    marginTop: 10,
-  },
-  input: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 15,
-    fontSize: 16,
-    color: '#333',
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  imagePickerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#e6e6ff',
-    padding: 15,
-    borderRadius: 10,
-    justifyContent: 'center',
-    marginTop: 10,
-  },
-  imagePickerButtonText: {
-    color: '#6C63FF',
-    fontWeight: 'bold',
-    marginLeft: 10,
-  },
-  imagePreviewContainer: {
-    flexDirection: 'row',
-    marginTop: 15,
-    marginBottom: 10,
-  },
-  imagePreviewWrapper: {
-    marginRight: 10,
-    position: 'relative',
-  },
-  imagePreview: {
-    width: 80,
-    height: 80,
-    borderRadius: 10,
-  },
-  deleteImageButton: {
-    position: 'absolute',
-    top: -5,
-    right: -5,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-  },
-  submitButton: {
-    backgroundColor: '#6C63FF',
-    padding: 15,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  submitButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  cancelButton: {
-    marginTop: 15,
-    padding: 15,
-    alignItems: 'center',
-  },
-  cancelButtonText: {
-    color: '#FF6347',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  detailLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#555',
-    marginTop: 10,
-  },
-  detailValue: {
-    fontSize: 16,
-    color: '#333',
-    marginBottom: 5,
-  },
-  orderActions: {
-    marginTop: 20,
-  },
-  confirmButton: {
-    backgroundColor: '#28A745',
-  },
-  deliverButton: {
-    backgroundColor: '#6C63FF',
-  },
-  formStepContainer: {
-    // Styles pour l'étape du formulaire
-  },
-  formStepTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 10,
-  },
-  pickerContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    marginBottom: 10,
-  },
-  switchContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 10,
-    paddingHorizontal: 5,
-  },
-  paymentStepContainer: {
-    alignItems: 'center',
-    padding: 20,
-  },
-  paymentIcon: {
-    marginBottom: 20,
-  },
-  paymentTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-  },
-  paymentDescription: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 10,
-    marginBottom: 20,
-  },
-  paymentAmount: {
-    fontWeight: 'bold',
-    color: '#6C63FF',
-  },
-  providerButtonsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%',
-    marginTop: 10,
-    marginBottom: 20,
-  },
-  providerButton: {
-    borderWidth: 2,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    padding: 15,
-    alignItems: 'center',
-  },
-  selectedProviderButton: {
-    borderColor: '#6C63FF',
-  },
-  providerIcon: {
-    width: 40,
-    height: 40,
-    marginBottom: 5,
-  },
-  providerButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-  },
-  selectedProviderButtonText: {
-    color: '#6C63FF',
-  },
-  paymentStatusMessage: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  paymentStatusText: {
-    marginLeft: 10,
-    color: '#6C63FF',
-    fontSize: 16,
-  },
-  paymentSuccessText: {
-    marginLeft: 10,
-    color: '#28A745',
-    fontSize: 16,
-  },
-  paymentFailedText: {
-    marginLeft: 10,
-    color: '#FF6347',
-    fontSize: 16,
-  },
-});
+};
+
+export default Profile;

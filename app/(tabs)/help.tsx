@@ -1,362 +1,319 @@
+// app/(tabs)/help.tsx
 import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
-  Platform, 
-  ScrollView, 
-  TextInput, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  Linking
+  Linking,
+  SafeAreaView,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '@/context/AuthContext';
-import { db } from '@/firebase/config';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 
-export default function HelpScreen() {
-  const { user } = useAuth();
+const { width } = Dimensions.get('window');
 
-  const [subject, setSubject] = useState('');
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+interface FAQItem {
+  question: string;
+  answer: string;
+}
 
-  // Nouvel état pour le signalement d'utilisateur
-  const [reportedUserId, setReportedUserId] = useState('');
-  const [reportReason, setReportReason] = useState('');
-  const [reporting, setReporting] = useState(false);
+const HelpScreen = () => {
+  const router = useRouter();
+  const [expandedItems, setExpandedItems] = useState<Record<number, boolean>>({});
+  
 
-  // Fonction pour envoyer un message d'aide via Firestore
-  const handleSendMessage = async () => {
-    if (!user?.id) {
-      Alert.alert("Erreur", "Vous devez être connecté pour envoyer un message.");
-      return;
-    }
-    if (subject.trim() === '' || message.trim() === '') {
-      Alert.alert("Erreur", "Le sujet et le message ne peuvent pas être vides.");
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      // Ajoute le message à une nouvelle collection 'support_messages' dans Firestore
-      const supportRef = collection(db, 'support_messages');
-      await addDoc(supportRef, {
-        subject: subject,
-        message: message,
-        senderId: user.id,
-        senderEmail: user.email,
-        timestamp: serverTimestamp(),
-      });
-
-      Alert.alert("Succès", "Votre message a bien été envoyé ! Nous vous répondrons dès que possible.");
-      setSubject('');
-      setMessage('');
-    } catch (error) {
-      console.error("Erreur lors de l'envoi du message de support :", error);
-      Alert.alert("Erreur", "Impossible d'envoyer le message. Veuillez réessayer.");
-    } finally {
-      setLoading(false);
-    }
+  const toggleItem = (index: number) => {
+    setExpandedItems(prev => ({
+      ...prev,
+      [index]: !prev[index]
+    }));
   };
 
-  // Fonction pour envoyer un signalement d'utilisateur
-  const handleReportUser = async () => {
-    if (!user?.id) {
-      Alert.alert("Erreur", "Vous devez être connecté pour signaler un utilisateur.");
-      return;
+  const faqData: FAQItem[] = [
+    {
+      question: "Comment créer un compte vendeur?",
+      answer: "Pour devenir vendeur, rendez-vous dans votre profil et cliquez sur 'Devenir vendeur'. Remplissez le formulaire avec vos informations professionnelles et pièces d'identité. Notre équipe vérifiera votre demande sous 24-48h."
+    },
+    {
+      question: "Comment passer une commande?",
+      answer: "Parcourez les produits, ajoutez ceux qui vous intéressent au panier, puis procédez au paiement. Choisissez entre livraison ou retrait en point de collecte."
+    },
+    {
+      question: "Quels sont les modes de paiement acceptés?",
+      answer: "Nous acceptons les paiements mobile money (M-Pesa, Airtel Money, Orange Money) ainsi que le paiement en espèces lors du retrait en point de collecte."
+    },
+    {
+      question: "Comment suivre ma commande?",
+      answer: "Une fois votre commande confirmée, vous recevrez des notifications sur son statut. Vous pouvez également consulter l'historique de vos commandes dans votre profil."
+    },
+    {
+      question: "Que faire en cas de problème avec une commande?",
+      answer: "Contactez-nous immédiatement via le chat ou par téléphone. Notre service client est disponible du lundi au samedi de 8h à 18h."
+    },
+    {
+      question: "Quelle est la politique de retour?",
+      answer: "Les retours sont acceptés sous 7 jours pour les articles non ouverts et en parfait état. Les produits alimentaires et périssables ne peuvent être retournés."
     }
-    if (reportedUserId.trim() === '' || reportReason.trim() === '') {
-      Alert.alert("Erreur", "L'identifiant de l'utilisateur et la raison ne peuvent pas être vides.");
-      return;
+  ];
+
+  const contactMethods = [
+    {
+      icon: 'call-outline',
+      title: 'Appeler le support',
+      description: 'Du lundi au samedi, 8h-18h',
+      action: () => Linking.openURL('tel:+243983627022')
+    },
+    {
+      icon: 'chatbubbles-outline',
+      title: 'Chat en direct',
+      description: 'Réponse immédiate',
+      action: () => router.push('/conv')
+    },
+    {
+      icon: 'mail-outline',
+      title: 'Envoyer un email',
+      description: 'Réponse sous 24h',
+      action: () => Linking.openURL('mailto:contact.yassdrc@gmail.com')
+    },
+    {
+      icon: 'location-outline',
+      title: 'Points de service',
+      description: 'Trouver une agence',
+      action: () => router.push('/')
     }
-
-    setReporting(true);
-
-    try {
-      // Ajoute le signalement à une nouvelle collection 'user_reports'
-      const reportsRef = collection(db, 'user_reports');
-      await addDoc(reportsRef, {
-        reportedUserId: reportedUserId,
-        reportReason: reportReason,
-        reporterId: user.id,
-        timestamp: serverTimestamp(),
-      });
-
-      Alert.alert("Signalement envoyé", "L'utilisateur a été signalé. Merci d'avoir contribué à la sécurité de notre communauté.");
-      setReportedUserId('');
-      setReportReason('');
-    } catch (error) {
-      console.error("Erreur lors du signalement de l'utilisateur :", error);
-      Alert.alert("Erreur", "Impossible d'envoyer le signalement. Veuillez réessayer.");
-    } finally {
-      setReporting(false);
-    }
-  };
-
-
-  // Fonction pour ouvrir l'application de messagerie de l'utilisateur
-  const handleSendEmail = () => {
-    const emailAddress = 'support@votresite.com';
-    const subjectEmail = 'Problème ou question';
-    const bodyEmail = 'Bonjour, \n\nVoici mon message : \n\n';
-    const url = `mailto:${emailAddress}?subject=${subjectEmail}&body=${bodyEmail}`;
-
-    Linking.openURL(url).catch(err => console.error("Impossible d'ouvrir l'application d'e-mail", err));
-  };
+  ];
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Aide et Support</Text>
-      </View>
-      <ScrollView contentContainerStyle={styles.content}>
-        
-        <Text style={styles.sectionTitle}>Tutoriels & Astuces</Text>
-        <View style={styles.card}>
-          <Text style={styles.cardText}>Créer une nouvelle conversation : Allez dans l'onglet 'Messages' et cliquez sur le bouton "+" pour sélectionner un utilisateur.</Text>
-          <View style={styles.separator} />
-          <Text style={styles.cardText}>Modifier votre profil : Vous pouvez changer votre nom et photo de profil via les paramètres (à implémenter).</Text>
-          <View style={styles.separator} />
-          <Text style={styles.cardText}>Gérer vos notifications : Les paramètres de l'application vous permettent d'activer ou de désactiver les notifications de nouveaux messages.</Text>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* En-tête */}
+        <LinearGradient
+          colors={['#6E45E2', '#88D3CE']}
+          style={styles.header}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <Text style={styles.headerTitle}>Centre d'aide</Text>
+          <Text style={styles.headerSubtitle}>Nous sommes là pour vous aider</Text>
+        </LinearGradient>
+
+        {/* Méthodes de contact */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Contactez-nous</Text>
+          <View style={styles.contactGrid}>
+            {contactMethods.map((method, index) => (
+              <TouchableOpacity
+                key={index}
+                style={styles.contactCard}
+                onPress={method.action}
+              >
+                <View style={styles.contactIcon}>
+                  <Ionicons name={method.icon as any} size={24} color="#6E45E2" />
+                </View>
+                <Text style={styles.contactTitle}>{method.title}</Text>
+                <Text style={styles.contactDescription}>{method.description}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Questions Fréquentes</Text>
-        <View style={styles.card}>
-          <Text style={styles.faqQuestion}>Q: Comment puis-je créer un nouveau chat ?</Text>
-          <Text style={styles.faqAnswer}>R: Rendez-vous sur l'onglet "Messages" et utilisez le bouton de création de nouveau chat (à implémenter) ou sélectionnez un contact pour démarrer une conversation.</Text>
-          <View style={styles.separator} />
-          <Text style={styles.faqQuestion}>Q: Que faire si j'ai un problème technique ?</Text>
-          <Text style={styles.faqAnswer}>R: Assurez-vous d'avoir la dernière version de l'application. Si le problème persiste, veuillez nous contacter via le formulaire ci-dessous ou par e-mail.</Text>
+        {/* FAQ */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Questions fréquentes</Text>
+          <View style={styles.faqContainer}>
+            {faqData.map((item, index) => (
+              <View key={index} style={styles.faqItem}>
+                <TouchableOpacity
+                  style={styles.faqQuestion}
+                  onPress={() => toggleItem(index)}
+                >
+                  <Text style={styles.faqQuestionText}>{item.question}</Text>
+                  <Ionicons
+                    name={expandedItems[index] ? 'chevron-up' : 'chevron-down'}
+                    size={20}
+                    color="#666"
+                  />
+                </TouchableOpacity>
+                {expandedItems[index] && (
+                  <View style={styles.faqAnswer}>
+                    <Text style={styles.faqAnswerText}>{item.answer}</Text>
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Nous Contacter</Text>
-        <View style={styles.contactSection}>
-          <Text style={styles.contactIntro}>
-            Vous n'avez pas trouvé de réponse ? Envoyez-nous un message directement.
-          </Text>
-          <TextInput
-            style={styles.inputField}
-            placeholder="Sujet de votre demande"
-            placeholderTextColor="#999"
-            value={subject}
-            onChangeText={setSubject}
-          />
-          <TextInput
-            style={[styles.inputField, styles.messageInput]}
-            placeholder="Écrivez votre message..."
-            placeholderTextColor="#999"
-            value={message}
-            onChangeText={setMessage}
-            multiline
-            numberOfLines={4}
-          />
-          <TouchableOpacity
-            style={styles.sendButton}
-            onPress={handleSendMessage}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.sendButtonText}>Envoyer le message</Text>
-            )}
-          </TouchableOpacity>
+        {/* Informations supplémentaires */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Informations importantes</Text>
+          <View style={styles.infoCard}>
+            <Ionicons name="time-outline" size={24} color="#6E45E2" />
+            <View style={styles.infoContent}>
+              <Text style={styles.infoTitle}>Heures de service</Text>
+              <Text style={styles.infoText}>Lundi - Samedi: 8h00 - 18h00</Text>
+              <Text style={styles.infoText}>Dimanche: 10h00 - 14h00</Text>
+            </View>
+          </View>
+
+          <View style={styles.infoCard}>
+            <Ionicons name="shield-checkmark-outline" size={24} color="#6E45E2" />
+            <View style={styles.infoContent}>
+              <Text style={styles.infoTitle}>Sécurité des paiements</Text>
+              <Text style={styles.infoText}>Tous vos paiements sont cryptés et sécurisés. Nous ne stockons jamais vos informations bancaires.</Text>
+            </View>
+          </View>
         </View>
 
-        {/* Nouvelle section pour le signalement */}
-        <Text style={styles.sectionTitle}>Sécurité et Signalement</Text>
-        <View style={styles.contactSection}>
-          <Text style={styles.contactIntro}>
-            Signalez un utilisateur ou un comportement inapproprié.
-          </Text>
-          <TextInput
-            style={styles.inputField}
-            placeholder="Identifiant de l'utilisateur à signaler"
-            placeholderTextColor="#999"
-            value={reportedUserId}
-            onChangeText={setReportedUserId}
-          />
-          <TextInput
-            style={[styles.inputField, styles.messageInput]}
-            placeholder="Raison du signalement..."
-            placeholderTextColor="#999"
-            value={reportReason}
-            onChangeText={setReportReason}
-            multiline
-            numberOfLines={4}
-          />
-          <TouchableOpacity
-            style={[styles.sendButton, styles.reportButton]}
-            onPress={handleReportUser}
-            disabled={reporting}
-          >
-            {reporting ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.sendButtonText}>Signaler cet utilisateur</Text>
-            )}
-          </TouchableOpacity>
+        {/* Pied de page */}
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>Version 1.0.0</Text>
+          <Text style={styles.footerText}>© 2025 YASS DRC App. Tous droits réservés.</Text>
         </View>
-        
-        <View style={styles.alternativeContact}>
-          <Text style={styles.contactIntro}>Ou, contactez-nous par e-mail.</Text>
-          <TouchableOpacity
-            style={styles.emailButton}
-            onPress={handleSendEmail}
-          >
-            <Ionicons name="mail-outline" size={20} color="#6C63FF" style={{ marginRight: 10 }} />
-            <Text style={styles.emailButtonText}>Contacter par E-mail</Text>
-          </TouchableOpacity>
-        </View>
-
       </ScrollView>
     </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f8f8', // Fond plus clair
+    backgroundColor: '#f7f7f7',
   },
   header: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 15,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ebebeb', // Ligne plus fine
-    paddingTop: Platform.OS === 'android' ? 40 : 0,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
+    padding: 20,
+    paddingTop: 40,
+    paddingBottom: 30,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 28,
     fontWeight: 'bold',
-    color: '#333',
-  },
-  content: {
-    padding: 20,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 20,
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  cardText: {
-    fontSize: 15,
-    color: '#555',
-    lineHeight: 22,
-  },
-  faqQuestion: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+    color: '#fff',
     marginBottom: 5,
   },
-  faqAnswer: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 10,
-    lineHeight: 20,
+  headerSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
   },
-  contactSection: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+  section: {
     padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  contactIntro: {
-    fontSize: 15,
-    color: '#555',
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  inputField: {
-    backgroundColor: '#f9f9f9',
-    borderRadius: 8,
-    padding: 15,
-    fontSize: 16,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: '#e5e5e5',
-  },
-  messageInput: {
-    height: 120,
-    textAlignVertical: 'top',
-  },
-  sendButton: {
-    backgroundColor: '#6C63FF',
-    paddingVertical: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  reportButton: {
-    backgroundColor: '#ff6b6b', // Couleur rouge pour le bouton de signalement
-  },
-  sendButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  alternativeContact: {
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 10,
-  },
-  emailButton: {
     backgroundColor: '#fff',
-    paddingVertical: 15,
-    paddingHorizontal: 25,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#6C63FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    marginTop: 10,
-    shadowColor: '#6C63FF',
+    margin: 15,
+    borderRadius: 15,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
-  emailButtonText: {
-    color: '#6C63FF',
-    fontSize: 16,
+  sectionTitle: {
+    fontSize: 20,
     fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 15,
   },
-  separator: {
-    height: 1,
-    backgroundColor: '#f0f0f0',
-    marginVertical: 15,
-  }
+  contactGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  contactCard: {
+    width: (width - 70) / 2,
+    alignItems: 'center',
+    padding: 15,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    marginBottom: 15,
+  },
+  contactIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(110, 69, 226, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  contactTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 5,
+  },
+  contactDescription: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+  },
+  faqContainer: {
+    marginTop: 10,
+  },
+  faqItem: {
+    marginBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    paddingBottom: 15,
+  },
+  faqQuestion: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  faqQuestionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    flex: 1,
+    marginRight: 10,
+  },
+  faqAnswer: {
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+  },
+  faqAnswerText: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+  },
+  infoCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  infoContent: {
+    flex: 1,
+    marginLeft: 15,
+  },
+  infoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 5,
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 3,
+  },
+  footer: {
+    padding: 20,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  footerText: {
+    fontSize: 12,
+    color: '#999',
+    marginBottom: 5,
+  },
 });
+
+export default HelpScreen;
