@@ -57,3 +57,10 @@
 
 
 fonction pour init un paiement 
+
+
+
+
+
+PS C:\Users\PC\Documents\__PROJET_ CAPITAUX__\mes apps\yass-drc version definitive\YassDrc> eas build -p android --profile apk
+>> 
