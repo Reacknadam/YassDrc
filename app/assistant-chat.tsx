@@ -1,24 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useState } from 'react';
 import {
-    View,
-    Text,
-    FlatList,
-    TouchableOpacity,
-    StyleSheet,
-    SafeAreaView,
-    TextInput,
     ActivityIndicator,
+    FlatList,
     KeyboardAvoidingView,
     Platform,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { StatusBar } from 'expo-status-bar';
 
 // Importation des services Firebase depuis le fichier de configuration
+import { useAuth } from '@/context/AuthContext'; // Importation du contexte d'authentification
 import { db } from '@/firebase/config';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { useAuth } from '@/context/AuthContext'; // Importation du contexte d'authentification
 
 // Définition des types pour les messages
 interface Message {
@@ -301,95 +301,123 @@ export default function AssistantChatScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f5f5f5',
+        backgroundColor: '#F3F4F8',
     },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
+        paddingHorizontal: 18,
+        paddingVertical: 16,
         backgroundColor: '#fff',
         borderBottomWidth: 1,
-        borderBottomColor: '#e0e0e0',
+        borderBottomColor: '#ececec',
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOpacity: 0.04,
+        shadowOffset: { width: 0, height: 2 },
+        shadowRadius: 4,
     },
     title: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#333',
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#6C63FF',
+        letterSpacing: 0.5,
     },
     list: {
-        paddingVertical: 10,
+        paddingVertical: 16,
+        paddingHorizontal: 4,
     },
     messageBubble: {
-        paddingHorizontal: 15,
-        paddingVertical: 10,
-        marginHorizontal: 10,
-        marginVertical: 5,
-        borderRadius: 20,
+        paddingHorizontal: 18,
+        paddingVertical: 12,
+        marginVertical: 6,
+        borderRadius: 22,
         maxWidth: '80%',
+        shadowColor: '#000',
+        shadowOpacity: 0.07,
+        shadowOffset: { width: 0, height: 2 },
+        shadowRadius: 6,
+        elevation: 2,
     },
     userBubble: {
         backgroundColor: '#6C63FF',
-        borderBottomRightRadius: 5,
+        alignSelf: 'flex-end',
+        borderBottomRightRadius: 8,
     },
     botBubble: {
-        backgroundColor: '#e0e0e0',
-        borderBottomLeftRadius: 5,
+        backgroundColor: '#fff',
+        alignSelf: 'flex-start',
+        borderBottomLeftRadius: 8,
+        borderWidth: 1,
+        borderColor: '#ececec',
     },
     messageText: {
         fontSize: 16,
-        color: '#333',
+        color: '#222',
     },
     productCard: {
         backgroundColor: '#fff',
-        borderRadius: 10,
-        padding: 10,
-        marginTop: 5,
+        borderRadius: 12,
+        padding: 12,
+        marginTop: 8,
         borderWidth: 1,
-        borderColor: '#e0e0e0'
+        borderColor: '#e0e0e0',
+        shadowColor: '#000',
+        shadowOpacity: 0.06,
+        shadowOffset: { width: 0, height: 2 },
+        shadowRadius: 4,
+        elevation: 1,
     },
     productTitle: {
         fontWeight: 'bold',
-        marginBottom: 5
+        marginBottom: 6,
+        color: '#6C63FF',
+        fontSize: 15,
     },
     productImageContainer: {
         width: '100%',
-        height: 150,
+        height: 120,
         backgroundColor: '#f0f0f0',
         justifyContent: 'center',
         alignItems: 'center',
-        borderRadius: 8
+        borderRadius: 8,
+        marginBottom: 8,
     },
     productDetails: {
-        marginTop: 10
+        marginTop: 6,
     },
     productName: {
         fontWeight: 'bold',
         fontSize: 16,
-        color: '#6C63FF'
+        color: '#6C63FF',
     },
     productPrice: {
         fontSize: 14,
-        color: '#555'
+        color: '#444',
+        marginTop: 2,
     },
     productSeller: {
         fontSize: 14,
-        color: '#555'
+        color: '#555',
+        marginTop: 2,
     },
     productDescription: {
-        fontSize: 12,
+        fontSize: 13,
         fontStyle: 'italic',
         color: '#888',
-        marginTop: 5
+        marginTop: 4,
     },
     sellerTitle: {
         fontWeight: 'bold',
-        marginBottom: 5
+        marginBottom: 4,
+        color: '#6C63FF',
+        fontSize: 15,
     },
     sellerText: {
         fontSize: 14,
-        color: '#333'
+        color: '#333',
+        marginBottom: 2,
     },
     inputContainer: {
         flexDirection: 'row',
@@ -397,15 +425,24 @@ const styles = StyleSheet.create({
         padding: 10,
         backgroundColor: '#fff',
         borderTopWidth: 1,
-        borderTopColor: '#e0e0e0',
+        borderTopColor: '#ececec',
+        borderRadius: 30,
+        margin: 12,
+        shadowColor: '#000',
+        shadowOpacity: 0.06,
+        shadowOffset: { width: 0, height: 2 },
+        shadowRadius: 8,
+        elevation: 3,
     },
     textInput: {
         flex: 1,
-        paddingHorizontal: 15,
-        paddingVertical: 10,
-        backgroundColor: '#f0f0f0',
-        borderRadius: 25,
+        paddingHorizontal: 18,
+        paddingVertical: 12,
+        backgroundColor: '#F3F4F8',
+        borderRadius: 22,
         marginRight: 10,
+        fontSize: 16,
+        color: '#222',
     },
     sendButton: {
         width: 48,
@@ -414,6 +451,11 @@ const styles = StyleSheet.create({
         backgroundColor: '#6C63FF',
         justifyContent: 'center',
         alignItems: 'center',
+        shadowColor: '#6C63FF',
+        shadowOpacity: 0.18,
+        shadowOffset: { width: 0, height: 2 },
+        shadowRadius: 6,
+        elevation: 2,
     },
     loadingContainer: {
         alignSelf: 'center',

@@ -5,7 +5,7 @@ import { Picker } from '@react-native-picker/picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePickerExpo from 'expo-image-picker';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { useRouter } from 'expo-router';
+import { router, useRouter } from 'expo-router';
 import {
   addDoc,
   collection,
@@ -1414,7 +1414,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ visible, onClose, product, 
               multiline
             />
             
-            <Text style={styles.inputLabel}>Prix ($)</Text>
+            <Text style={styles.inputLabel}>Prix (CDF)</Text>
             <TextInput
               style={styles.input}
               value={price}
@@ -1540,7 +1540,7 @@ const OrderModal: React.FC<OrderModalProps> = ({ visible, onClose, order, onStat
             
             <View style={styles.detailSection}>
               <Text style={styles.detailLabel}>Prix Total:</Text>
-              <Text style={styles.detailValue}>{(order.totalPrice || 0).toFixed(2)} $</Text>
+              <Text style={styles.detailValue}>{(order.totalPrice || 0).toFixed(2)} </Text>
             </View>
             
             <View style={styles.detailSection}>
@@ -1673,138 +1673,132 @@ const SellerFormModal: React.FC<SellerFormModalProps> = ({
   const isFormValid = useMemo(() => {
     return (
       sellerForm.shopName.trim() !== '' &&
-      sellerForm.idNumber.trim() !== '' &&
       sellerForm.businessDescription.trim() !== '' &&
       sellerForm.phoneNumber.trim() !== '' &&
-      sellerForm.location.trim() !== '' && sellerForm.address.trim() !== '' &&
+      sellerForm.location.trim() !== '' &&
+      sellerForm.address.trim() !== '' &&
       sellerForm.isAdult
     );
   }, [sellerForm]);
 
+  const provincesRDC = [
+    "Bas-Uele", "Haut-Uele", "Ituri", "Nord-Kivu", "Sud-Kivu",
+    "Équateur", "Tshuapa", "Mongala", "Nord-Ubangi", "Sud-Ubangi",
+    "Kasaï", "Kasaï-Central", "Kasaï-Oriental", "Kwango", "Kwilu",
+    "Mai-Ndombe", "Sankuru", "Maniema", "Haut-Lomami", "Lomami",
+    "Tanganyika", "Haut-Katanga", "Lualaba", "Haut-Kasaï", "Kinshasa", "Kongo-Central"
+  ];
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-  <SafeAreaView style={styles.modalSafeArea}>
-    <View style={styles.modalContainer}>
-      <View style={styles.modalHeader}>
-        <Text style={styles.modalTitle}>Devenir Vendeur</Text>
-        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-          <Ionicons name="close" size={30} color="#333" />
-        </TouchableOpacity>
-      </View>
-      <ScrollView style={styles.modalContent}>
-        <View style={styles.formStepContainer}>
-          <Text style={styles.formStepTitle}>Informations du Vendeur</Text>
-          <Text style={styles.modalSubtitle}>Remplissez ces informations pour enregistrer votre profil vendeur.</Text>
-          
-          <Text style={styles.inputLabel}>Nom de la Boutique</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ex: Mon Super Magasin"
-            value={sellerForm.shopName}
-            onChangeText={text => setSellerForm(prev => ({ ...prev, shopName: text }))}
-          />
-
-          <Text style={styles.inputLabel}>Type de pièce</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={sellerForm.idType}
-              onValueChange={itemValue => setSellerForm(prev => ({ ...prev, idType: itemValue }))}>
-              <Picker.Item label="Sélectionnez un type" value="" />
-              <Picker.Item label="Carte d'identité" value="CNI" />
-              <Picker.Item label="Passeport" value="Passeport" />
-              <Picker.Item label="Permis de conduire" value="Permis" />
-            </Picker>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#f5f5f5' }}>
+        <View style={{ flex: 1, margin: 20, backgroundColor: '#fff', borderRadius: 15, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10 }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, backgroundColor: '#6C63FF' }}>
+            <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold' }}>Devenir Vendeur</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={28} color="#fff" />
+            </TouchableOpacity>
           </View>
 
-          <Text style={styles.inputLabel}>Numéro de la pièce</Text>
-          {/* 🔥 Ajout de l’input manquant */}
-          <TextInput
-            style={styles.input}
-            placeholder="Ex: 0123456789"
-            value={sellerForm.idNumber}
-            onChangeText={text => setSellerForm(prev => ({ ...prev, idNumber: text }))}
-          />
+          <ScrollView contentContainerStyle={{ padding: 20 }}>
+            <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 10 }}>Informations du Vendeur</Text>
+            <Text style={{ color: '#666', marginBottom: 20 }}>Remplissez ces informations pour enregistrer votre profil vendeur.</Text>
 
-          <Text style={styles.inputLabel}>Catégorie d'activité</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={sellerForm.businessDescription}
-              onValueChange={itemValue => setSellerForm(prev => ({ ...prev, businessDescription: itemValue }))}>
-              <Picker.Item label="Sélectionnez une catégorie" value="" />
-              <Picker.Item label="Vêtements" value="Vêtements" />
-              <Picker.Item label="Électronique" value="Électronique" />
-              <Picker.Item label="Alimentation" value="Alimentation" />
-              <Picker.Item label="Autre" value="Autre" />
-            </Picker>
-          </View>
-
-          <Text style={styles.inputLabel}>Numéro de Téléphone</Text>
-          {/* 🔥 Champ téléphone avec préfixe +243 */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#ccc', borderRadius: 8, paddingHorizontal: 10 }}>
-            <Text style={{ marginRight: 5, fontWeight: 'bold' }}>+243</Text>
+            {/* Nom de la Boutique */}
+            <Text style={{ marginBottom: 5, fontWeight: '500' }}>Nom de la Boutique</Text>
             <TextInput
-              style={{ flex: 1, height: 40 }}
-              placeholder="999 999 999"
-              keyboardType="phone-pad"
-              value={sellerForm.phoneNumber}
-              onChangeText={text => {
-                // On s’assure que ça commence toujours par 9
-                let formatted = text.replace(/[^0-9]/g, '');
-                if (formatted && !formatted.startsWith('9')) {
-                  formatted = '9' + formatted;
-                }
-                setSellerForm(prev => ({ ...prev, phoneNumber: formatted }));
+              style={{ backgroundColor: '#f0f0f0', borderRadius: 8, padding: 10, marginBottom: 15 }}
+              placeholder="Ex: Mon Super Magasin"
+              value={sellerForm.shopName}
+              onChangeText={text => setSellerForm(prev => ({ ...prev, shopName: text }))}
+            />
+
+            {/* Catégorie d'activité */}
+            <Text style={{ marginBottom: 5, fontWeight: '500' }}>Catégorie d'activité</Text>
+            <View style={{ backgroundColor: '#f0f0f0', borderRadius: 8, marginBottom: 15 }}>
+              <Picker
+                selectedValue={sellerForm.businessDescription}
+                onValueChange={itemValue => setSellerForm(prev => ({ ...prev, businessDescription: itemValue }))}>
+                <Picker.Item label="Sélectionnez une catégorie" value="" />
+                <Picker.Item label="Vêtements" value="Vêtements" />
+                <Picker.Item label="Électronique" value="Électronique" />
+                <Picker.Item label="Alimentation" value="Alimentation" />
+                <Picker.Item label="Autre" value="Autre" />
+              </Picker>
+            </View>
+
+            {/* Téléphone */}
+            <Text style={{ marginBottom: 5, fontWeight: '500' }}>Numéro de Téléphone</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0f0f0', borderRadius: 8, paddingHorizontal: 10, marginBottom: 15 }}>
+              <Text style={{ marginRight: 5, fontWeight: 'bold' }}>+243</Text>
+              <TextInput
+                style={{ flex: 1, height: 40 }}
+                placeholder="999 999 999"
+                keyboardType="phone-pad"
+                value={sellerForm.phoneNumber}
+                onChangeText={text => {
+                  let formatted = text.replace(/[^0-9]/g, '');
+                  if (formatted && !formatted.startsWith('9')) formatted = '9' + formatted;
+                  setSellerForm(prev => ({ ...prev, phoneNumber: formatted }));
+                }}
+                maxLength={9}
+              />
+            </View>
+
+            {/* Province */}
+            <Text style={{ marginBottom: 5, fontWeight: '500' }}>Province</Text>
+            <View style={{ backgroundColor: '#f0f0f0', borderRadius: 8, marginBottom: 15 }}>
+              <Picker
+                selectedValue={sellerForm.location}
+                onValueChange={itemValue => setSellerForm(prev => ({ ...prev, location: itemValue }))}>
+                <Picker.Item label="Sélectionnez une province" value="" />
+                {provincesRDC.map(province => (
+                  <Picker.Item key={province} label={province} value={province} />
+                ))}
+              </Picker>
+            </View>
+
+            {/* Adresse */}
+            <Text style={{ marginBottom: 5, fontWeight: '500' }}>Adresse Complète</Text>
+            <TextInput
+              style={{ backgroundColor: '#f0f0f0', borderRadius: 8, padding: 10, height: 60, textAlignVertical: 'top', marginBottom: 15 }}
+              placeholder="Ex: Av. De la Paix, Q. Les Volcans, N°123"
+              value={sellerForm.address}
+              onChangeText={text => setSellerForm(prev => ({ ...prev, address: text }))}
+              multiline
+            />
+
+            {/* Switch 18+ */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25 }}>
+              <Text style={{ fontWeight: '500' }}>J'ai plus de 18 ans</Text>
+              <Switch
+                trackColor={{ false: '#ccc', true: '#6C63FF' }}
+                thumbColor={sellerForm.isAdult ? '#6C63FF' : '#f4f3f4'}
+                ios_backgroundColor="#3e3e3e"
+                onValueChange={value => setSellerForm(prev => ({ ...prev, isAdult: value }))}
+                value={sellerForm.isAdult}
+              />
+            </View>
+
+            {/* Bouton Submit */}
+            <TouchableOpacity
+              style={{
+                backgroundColor: isFormValid ? '#6C63FF' : '#aaa',
+                paddingVertical: 15,
+                borderRadius: 10,
+                alignItems: 'center',
+                marginBottom: 30
               }}
-              maxLength={9} // 🔥 numéro congolais = 9 chiffres
-            />
-          </View>
-
-          <Text style={styles.inputLabel}>Ville Kananga </Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={sellerForm.location}
-              onValueChange={itemValue => setSellerForm(prev => ({ ...prev, location: itemValue }))}>
-              <Picker.Item label="Sélectionnez une commune" value="" />
-              <Picker.Item label="Kananga" value="Kananga" />
-              <Picker.Item label="Ndesha" value="Ndesha" />
-              <Picker.Item label="Nganza" value="Nganza" />
-              <Picker.Item label="Katoka" value="Katoka" />
-              <Picker.Item label="Lukonga" value="Lukonga" />
-            </Picker>
-          </View>
-
-          <Text style={styles.inputLabel}>Adresse Complète</Text>
-          <TextInput
-            style={[styles.input, { height: 60, textAlignVertical: 'top' }]}
-            placeholder="Ex: Av. De la Paix, Q. Les Volcans, N°123"
-            value={sellerForm.address}
-            onChangeText={text => setSellerForm(prev => ({ ...prev, address: text }))}
-            multiline
-          />
-
-          <View style={styles.switchContainer}>
-            <Text style={styles.inputLabel}>J'ai plus de 18 ans</Text>
-            <Switch
-              trackColor={{ false: '#767577', true: '#6C63FF' }}
-              thumbColor={sellerForm.isAdult ? '#6C63FF' : '#f4f3f4'}
-              ios_backgroundColor="#3e3e3e"
-              onValueChange={value => setSellerForm(prev => ({ ...prev, isAdult: value }))}
-              value={sellerForm.isAdult}
-            />
-          </View>
-          
-          <TouchableOpacity 
-            style={[styles.submitButton, (loading || !isFormValid) && styles.disabledButton]} 
-            onPress={onSubmitForm} 
-            disabled={loading || !isFormValid}
-          >
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Envoyer la demande</Text>}
-          </TouchableOpacity>
+              onPress={onSubmitForm}
+              disabled={!isFormValid || loading}
+            >
+              {loading ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '600' }}>Envoyer la demande</Text>}
+            </TouchableOpacity>
+          </ScrollView>
         </View>
-      </ScrollView>
-    </View>
-  </SafeAreaView>
-</Modal>
+      </SafeAreaView>
+    </Modal>
   );
 };
 
@@ -2045,12 +2039,12 @@ const OrdersTab: React.FC<OrdersTabProps> = ({ orders, onSelectOrder, loading })
                     item.status === 'pending' ? styles.statusPending : item.status === 'confirmed' ? styles.statusConfirmed : item.status === 'shipped' ? styles.statusShipped : item.status === 'delivered' ? styles.statusDelivered : styles.statusCancelled
                   ]}
                 >
-                  {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+                  {item.status ? item.status.charAt(0).toUpperCase() + item.status.slice(1) : 'Inconnu'}
                 </Text>
               </View>
               <Text style={styles.orderProduct}>{item.productName}</Text>
               <Text style={styles.orderBuyer}>Client: {item.buyerName}</Text>
-              <Text style={styles.orderTotal}>{(item.totalPrice || 0).toFixed(2)} $</Text>
+              <Text style={styles.orderTotal}>{(item.totalPrice || 0).toFixed(2)} </Text>
               <View style={styles.orderFooter}>
                 <Text style={styles.orderDate}>
                   {item.createdAt?.toDate().toLocaleDateString()}
@@ -2104,7 +2098,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, onAddProduct, onEdi
               </View>
               <View style={styles.productInfo}>
                 <Text style={styles.productName}>{item.name}</Text>
-                <Text style={styles.productPrice}>{item.price} $</Text>
+                <Text style={styles.productPrice}>{item.price} </Text>
                 <View style={styles.productMeta}>
                   <Text style={styles.productCategory}>{item.category}</Text>
                   <Text style={styles.productStock}>Stock: {item.stock || 0}</Text>
@@ -2178,7 +2172,7 @@ const StatsTab: React.FC<StatsTabProps> = ({ stats, loading }) => {
           <Ionicons name="cash-outline" size={30} color="#FF6347" />
         </View>
         <View style={styles.statContent}>
-          <Text style={styles.statValue}>{(stats.totalRevenue || 0).toFixed(2)} $</Text>
+          <Text style={styles.statValue}>{(stats.totalRevenue || 0).toFixed(2)} </Text>
           <Text style={styles.statLabel}>Revenu total</Text>
         </View>
       </View>
@@ -2276,6 +2270,22 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ onLogout, onDeleteAccount, us
         </View>
         <Ionicons name="chevron-forward" size={20} color="#ccc" />
       </TouchableOpacity>
+      <TouchableOpacity style={styles.settingItem} onPress={() => router.push('/upload-qr')}>
+  <View style={styles.settingLeft}>
+    <Ionicons name="qr-code" size={24} color="#6C63FF" />
+    <Text style={styles.settingText}>Ajouter mes QR codes Mobile Money</Text>
+  </View>
+  <Ionicons name="chevron-forward" size={20} color="#ccc" />
+</TouchableOpacity>
+
+
+  <TouchableOpacity style={styles.settingItem} onPress={() => router.push('/driver')}>
+  <View style={styles.settingLeft}>
+    <Ionicons name="qr-code" size={24} color="#6C63FF" />
+    <Text style={styles.settingText}>JE SUIS LIVREUR FAST GO</Text>
+  </View>
+  <Ionicons name="chevron-forward" size={20} color="#ccc" />
+</TouchableOpacity>
       <View style={styles.settingItem}>
         <View style={styles.settingLeft}>
          
@@ -2733,15 +2743,19 @@ const operatorId = authUser?.id || ""; // ID de l’utilisateur connecté
       setLoading(prev => ({ ...prev, products: false }));
     });
 
-    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
-      const fetchedOrders: Order[] = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Order[];
-      setOrders(fetchedOrders);
-      setLoading(prev => ({ ...prev, orders: false }));
-    });
-
+const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+  const fetchedOrders: Order[] = snapshot.docs.map(doc => {
+    const orderData = doc.data();
+    const status = orderData.status || 'Inconnu'; // Default value if status is missing
+    return {
+      id: doc.id,
+      ...orderData,
+      status: typeof status === 'string' ? status : 'Inconnu'
+    };
+  }) as Order[];
+  setOrders(fetchedOrders);
+  setLoading(prev => ({ ...prev, orders: false }));
+});
     const unsubscribePromotions = onSnapshot(promotionsQuery, (snapshot) => {
       const fetchedPromotions: Promotion[] = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -2927,6 +2941,49 @@ const operatorId = authUser?.id || ""; // ID de l’utilisateur connecté
       },
     });
   };
+
+
+
+
+
+/* Annuler : on supprime la demande et on remet tout à zéro */
+const handleCancelRequest = () => {
+  Alert.alert(
+    'Annuler la demande',
+    'Êtes-vous sûr de vouloir annuler votre demande de vendeur ?',
+    [
+      { text: 'Non', style: 'cancel' },
+      {
+        text: 'Oui',
+        style: 'destructive',
+        onPress: async () => {
+          if (!authUser?.id) return;
+          try {
+            // 1. Supprimer la demande Firestore (si elle existe)
+            if (userProfile?.sellerRequestId) {
+              await deleteDoc(doc(db, 'sellerRequests', userProfile.sellerRequestId));
+            }
+            // 2. Remettre le profil à l’état initial
+            await updateDoc(doc(db, 'users', authUser.id), {
+              isSellerRequested: false,
+              sellerRequestId: null,
+              sellerForm: null,
+              paymentStatus: 'idle',
+              depositStatus: 'NOT_REQUIRED',
+            });
+            Alert.alert('Succès', 'Votre demande a été annulée.');
+          } catch (e) {
+            console.error('Erreur annulation : ', e);
+            Alert.alert('Erreur', 'Impossible d’annuler la demande.');
+          }
+        },
+      },
+    ]
+  );
+};
+
+
+
 
 
 
@@ -3142,6 +3199,18 @@ const handleSellerFormSubmit = async () => {
                   <Ionicons name="checkmark-circle-outline" size={24} color="#fff" />
                   <Text style={styles.requestSellerButtonText}>Confirmer manuellement</Text>
                 </TouchableOpacity>
+                {/* ✅ AJOUTE CES DEUX BOUTONS */}
+    <View style={{ flexDirection: 'row', marginTop: 12, gap: 10 }}>
+     
+
+      <TouchableOpacity
+        style={[styles.requestSellerButton, { backgroundColor: '#FF6347', flex: 1 }]}
+        onPress={handleCancelRequest}
+      >
+        <Ionicons name="close" size={24} color="#fff" />
+        <Text style={styles.requestSellerButtonText}>Annuler</Text>
+      </TouchableOpacity>
+    </View>
                 <Text style={styles.sellerStatusText}>
                   Votre demande pour devenir vendeur est en cours de traitement.
                   {userProfile.paymentStatus === 'pending' && (

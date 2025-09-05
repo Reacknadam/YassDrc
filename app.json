@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "YassDrc",
+    "name": "jumy",
     "slug": "YassDrc",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "yassdrc",
+    "icon": "./assets/images/icon.jpg",
+    "scheme": "jumy",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -17,7 +17,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.israel_ltd.YassDrc"
+      "package": "com.israel_ltd.Jimmy"
     },
     "web": {
       "bundler": "metro",

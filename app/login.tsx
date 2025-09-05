@@ -9,17 +9,26 @@ import {
   Platform,
   KeyboardAvoidingView,
   SafeAreaView,
+  Dimensions,
+  Animated,
 } from 'react-native';
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+
+const { width, height } = Dimensions.get('window');
 
 export default function Login() {
   const { authUser, login, loading: authLoading, error: authError, setError } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  const buttonScale = new Animated.Value(1);
+  const cardTranslateY = new Animated.Value(0);
 
   // Rediriger automatiquement si l'utilisateur est déjà connecté
   useEffect(() => {
@@ -36,14 +45,21 @@ export default function Login() {
   }, []);
 
   const handleLogin = async () => {
+    setError(null);
     if (!email || !password) {
-      // Utilisez l'état d'erreur du contexte pour afficher un message
       setError("Veuillez saisir votre email et votre mot de passe.");
       return;
     }
 
     try {
-      await login(email, password);
+      const success = await login(email, password);
+      if (success) {
+        setSuccess(true);
+        setTimeout(() => {
+          setSuccess(false);
+          router.replace('/home');
+        }, 2000);
+      }
     } catch (err) {
       console.error("Erreur inattendue:", err);
     }
@@ -52,6 +68,43 @@ export default function Login() {
   const handleGoToRegister = () => {
     router.replace('/register');
   };
+  
+  const handlePressIn = () => {
+    Animated.spring(buttonScale, {
+      toValue: 0.95,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(buttonScale, {
+      toValue: 1,
+      friction: 3,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+  };
+  
+  const floatAnimation = () => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(cardTranslateY, {
+          toValue: -10,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(cardTranslateY, {
+          toValue: 0,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  };
+
+  useEffect(() => {
+    floatAnimation();
+  }, []);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -59,55 +112,87 @@ export default function Login() {
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <View style={styles.card}>
-            <Text style={styles.title}>Connexion</Text>
-            {authError && <Text style={styles.errorText}>{authError}</Text>}
-            <View style={styles.inputGroup}>
-              <Ionicons name="mail-outline" size={20} color="#666" style={styles.icon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Email"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={email}
-                onChangeText={setEmail}
-              />
-            </View>
-            <View style={styles.inputGroup}>
-              <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.icon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Mot de passe"
-                secureTextEntry
-                value={password}
-                onChangeText={setPassword}
-              />
-            </View>
-            <TouchableOpacity
-              style={styles.loginButton}
-              onPress={handleLogin}
-              disabled={authLoading}
-            >
-              {authLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Se connecter</Text>
+        <LinearGradient
+          colors={['#6C63FF', '#4F46E5']}
+          style={styles.backgroundGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <ScrollView contentContainerStyle={styles.scrollContent}>
+            <Animated.View style={[styles.card, { transform: [{ translateY: cardTranslateY }] }]}>
+              <Text style={styles.title}>Se connecter</Text>
+              <Text style={styles.subtitle}>Bienvenue de retour</Text>
+              
+              {authError && <Text style={styles.errorText}>{authError}</Text>}
+              
+              <View style={styles.inputContainer}>
+                <Ionicons name="mail-outline" size={20} color="#8E8E93" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Adresse e-mail"
+                  placeholderTextColor="#A8A8B3"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  value={email}
+                  onChangeText={setEmail}
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Ionicons name="lock-closed-outline" size={20} color="#8E8E93" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Mot de passe"
+                  placeholderTextColor="#A8A8B3"
+                  secureTextEntry
+                  value={password}
+                  onChangeText={setPassword}
+                />
+              </View>
+
+              <TouchableOpacity style={styles.forgotPasswordButton}>
+                <Text style={styles.forgotPasswordText}>Mot de passe oublié ?</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.loginButton, { transform: [{ scale: buttonScale }] }]}
+                onPress={handleLogin}
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                disabled={authLoading}
+              >
+                {authLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>Se connecter</Text>
+                )}
+              </TouchableOpacity>
+
+              {success && (
+                <View style={styles.successMessage}>
+                  <Ionicons name="checkmark-circle-outline" size={20} color="#22C55E" />
+                  <Text style={styles.successText}>Connexion réussie !</Text>
+                </View>
               )}
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.forgotPasswordButton}>
-              <Text style={styles.forgotPasswordText}>Mot de passe oublié ?</Text>
-            </TouchableOpacity>
-            <View style={styles.separatorContainer}>
-              <View style={styles.separatorLine} />
-              <Text style={styles.separatorText}>OU</Text>
-              <View style={styles.separatorLine} />
-            </View>
-            <TouchableOpacity style={styles.registerButton} onPress={handleGoToRegister}>
-              <Text style={styles.registerButtonText}>Créer un nouveau compte</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
+
+              <View style={styles.separatorContainer}>
+                <View style={styles.separatorLine} />
+                <Text style={styles.separatorText}>OU</Text>
+                <View style={styles.separatorLine} />
+              </View>
+
+          
+
+              
+              <View style={styles.signupContainer}>
+                <Text style={styles.signupText}>Vous n'avez pas de compte ?</Text>
+                <TouchableOpacity onPress={handleGoToRegister}>
+                  <Text style={styles.signupLink}>S'inscrire</Text>
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
+          </ScrollView>
+        </LinearGradient>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -116,36 +201,46 @@ export default function Login() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
   },
   container: {
     flex: 1,
+  },
+  backgroundGradient: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#fff',
+    paddingVertical: 20,
   },
   card: {
-    width: '100%',
+    width: '90%',
     maxWidth: 400,
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 25,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 25,
+    padding: 100,
+    alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.05,
-    shadowRadius: 15,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 15,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 25,
-    textAlign: 'center',
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#1E1E1E',
+    marginBottom: 5,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#6A6A6A',
+    marginBottom: 30,
   },
   errorText: {
     color: '#FF6347',
@@ -154,16 +249,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  inputGroup: {
+  inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0F2F5',
-    borderRadius: 10,
+    width: '100%',
+    backgroundColor: '#F7F7F7',
+    borderRadius: 15,
     marginBottom: 15,
     paddingHorizontal: 15,
     height: 55,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
   },
-  icon: {
+  inputIcon: {
     marginRight: 10,
   },
   input: {
@@ -172,57 +273,96 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   loginButton: {
+    width: '100%',
     backgroundColor: '#6C63FF',
-    paddingVertical: 16,
-    borderRadius: 10,
+    paddingVertical: 18,
+    borderRadius: 20,
     alignItems: 'center',
-    marginTop: 20,
+    justifyContent: 'center',
     shadowColor: '#6C63FF',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4,
+    shadowRadius: 15,
+    elevation: 10,
   },
   buttonText: {
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
   },
-  forgotPasswordButton: {
-    alignSelf: 'flex-end',
-    marginTop: 15,
+  successMessage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 20,
+    backgroundColor: '#E6F9F0',
+    padding: 10,
+    borderRadius: 10,
   },
-  forgotPasswordText: {
-    color: '#6C63FF',
-    fontSize: 14,
-    fontWeight: '600',
+  successText: {
+    color: '#22C55E',
+    marginLeft: 5,
+    fontWeight: 'bold',
   },
   separatorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    width: '100%',
     marginVertical: 30,
   },
   separatorLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: '#E5E7EB',
   },
   separatorText: {
-    marginHorizontal: 10,
-    color: '#888',
+    marginHorizontal: 15,
+    color: '#A8A8B3',
     fontSize: 14,
+    fontWeight: '500',
   },
-  registerButton: {
-    paddingVertical: 16,
-    borderRadius: 10,
+  socialButton: {
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#E0E0E0',
-    backgroundColor: '#fff',
+    width: '100%',
+    height: 55,
+    backgroundColor: '#F7F7F7',
+    borderRadius: 15,
+    paddingHorizontal: 20,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
   },
-  registerButtonText: {
-    color: '#6C63FF',
+  socialButtonText: {
+    flex: 1,
+    textAlign: 'center',
     fontSize: 16,
+    color: '#333',
+    fontWeight: '600',
+    marginLeft: 10,
+  },
+  forgotPasswordButton: {
+    alignSelf: 'flex-end',
+    marginTop: 15,
+    marginBottom: 20,
+  },
+  forgotPasswordText: {
+    color: '#4F46E5',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  signupContainer: {
+    flexDirection: 'row',
+    marginTop: 20,
+  },
+  signupText: {
+    color: '#A8A8B3',
+  },
+  signupLink: {
+    color: '#4F46E5',
     fontWeight: 'bold',
+    marginLeft: 5,
   },
 });

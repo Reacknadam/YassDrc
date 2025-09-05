@@ -77,7 +77,7 @@ const HelpScreen = () => {
       icon: 'mail-outline',
       title: 'Envoyer un email',
       description: 'Réponse sous 24h',
-      action: () => Linking.openURL('mailto:contact.yassdrc@gmail.com')
+      action: () => Linking.openURL('mailto:contact.yassd@gmail.com')
     },
     {
       icon: 'location-outline',

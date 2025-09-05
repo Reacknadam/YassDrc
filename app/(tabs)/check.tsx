@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,688 +10,843 @@ import {
   Dimensions,
   Modal,
   Linking,
+  Platform,
+  TextInput,
+  Image,
+  ScrollView,
+  Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { router, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, collection, query, where, updateDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
-import MapView, { Marker, Polyline, Circle, Callout } from 'react-native-maps';
+import {
+  doc,
+  collection,
+  query,
+  where,
+  updateDoc,
+  serverTimestamp,
+  onSnapshot,
+  orderBy,
+} from 'firebase/firestore';
 import * as Location from 'expo-location';
-import { db } from '@/firebase/config';
+import * as ImagePicker from 'expo-image-picker';
+import { db, storage } from '@/firebase/config';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
+// Importations de la librairie native de cartographie
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
-// Définir les interfaces pour les coordonnées et la caméra afin d'éviter les erreurs TypeScript
+// =================================================================
+// 🚀 Typages & Enums
+// =================================================================
+
+enum OrderStatus {
+  PendingDeliveryChoice = 'pending_delivery_choice',
+  SellerDelivering = 'seller_delivering',
+  AppDelivering = 'app_delivering',
+  Delivered = 'delivered',
+  ManualVerification = 'manual_verification',
+  Confirmed = 'confirmed',
+}
+
+enum DeliveryMethod {
+  SellerDelivery = 'seller_delivery',
+  AppDelivery = 'app_delivery',
+}
+
+enum PaymentStatus {
+    Pending = 'pending',
+    Paid = 'paid',
+    PaidOnSite = 'paid_on_site',
+    VerificationNeeded = 'verification_needed'
+}
+
 interface Coordinates {
   latitude: number;
   longitude: number;
 }
 
-interface Camera {
-  center: Coordinates;
-  pitch: number;
-  heading: number;
-  zoom: number;
-  altitude: number;
-}
-
-// Helper function pour simuler une distance et un temps de trajet
-const haversineDistance = (coords1: Coordinates, coords2: Coordinates): number => {
-  const toRad = (x: number): number => (x * Math.PI) / 180;
-  const R = 6371; // Rayon de la Terre en km
-
-  const dLat = toRad(coords2.latitude - coords1.latitude);
-  const dLon = toRad(coords2.longitude - coords1.longitude);
-
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(coords1.latitude)) *
-      Math.cos(toRad(coords2.latitude)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; // Distance en km
-};
-
-// Définir le type UserType
-interface UserType {
-  id: string;
-  role: string;
-  isSellerVerified?: boolean;
-}
-
-// Définir la structure d'une commande
 interface Order {
   id: string;
   customerName: string;
   customerPhone: string;
   deliveryAddress: string;
-  deliveryLocation: string;
-  deliveryCoordinates: { latitude: number; longitude: number };
-  items: Array<{
-    name: string;
-    quantity: number;
-    price: number;
-  }>;
+  deliveryCoordinates: Coordinates;
   totalAmount: number;
-  status: string;
-  deliveryType: string;
+  status: OrderStatus;
+  deliveryMethod?: DeliveryMethod;
+  paymentStatus: PaymentStatus;
+  sellerId: string;
   createdAt: any;
-  deliveryMethod?: 'app_delivery' | 'seller_delivery';
-  paymentStatus?: string;
-  sellerId?: string;
+  proofType?: 'photo' | 'text';
+  proofContent?: string;
+  deliveredAt?: any;
 }
 
-// Définir les types des props pour le composant de la modale de carte
-interface MapModalProps {
-  order: Order | null;
-  onClose: () => void;
+interface UserType {
+  id: string;
+  email: string;
+  isSellerVerified: boolean;
+  name?: string;
+  phone?: string;
 }
 
-// Définir les types des props pour le composant de la modale de confirmation
-interface ConfirmationModalProps {
-  order: Order | null;
-  visible: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
+// =================================================================
+// 🧠 Hooks Personnalisés
+// =================================================================
+
+const useLocationTracking = () => {
+    const [currentLocation, setCurrentLocation] = useState<Location.LocationObject | null>(null);
+    const [permissionError, setPermissionError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let subscription: Location.LocationSubscription | undefined;
+        const startTracking = async () => {
+            try {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                    setPermissionError('Permission de localisation refusée. Les fonctionnalités de carte sont désactivées.');
+                    return;
+                }
+                subscription = await Location.watchPositionAsync(
+                    { accuracy: Location.Accuracy.High, timeInterval: 5000, distanceInterval: 10 },
+                    setCurrentLocation
+                );
+            } catch (error) {
+                console.error("Erreur d'initialisation de la localisation:", error);
+                setPermissionError("Impossible d'obtenir la localisation.");
+            }
+        };
+
+        startTracking();
+        return () => subscription?.remove();
+    }, []);
+
+    return { currentLocation, permissionError };
+};
+
+// =================================================================
+// 🎨 Composants Modulaires
+// =================================================================
+
+interface ProofOfDeliveryModalProps {
+    visible: boolean;
+    onClose: () => void;
+    onSubmit: (proofType: 'photo' | 'text', content: string) => Promise<void>;
+    order: Order | null;
 }
 
-const { width, height } = Dimensions.get('window');
+const ProofOfDeliveryModal = ({ visible, onClose, onSubmit, order }: ProofOfDeliveryModalProps) => {
+    const [proofType, setProofType] = useState<'photo' | 'text'>('photo');
+    const [proofText, setProofText] = useState('');
+    const [proofImage, setProofImage] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        if (visible) {
+            setProofType('photo');
+            setProofText('');
+            setProofImage(null);
+        }
+    }, [visible]);
+
+    const pickImage = async () => {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert("Permission refusée", "L'accès à la galerie est nécessaire pour ajouter une preuve.");
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [4, 3],
+            quality: 0.5,
+        });
+        if (!result.canceled) {
+            setProofImage(result.assets[0].uri);
+        }
+    };
+    
+    const handleSubmit = async () => {
+        if (isSubmitting) return;
+
+        setIsSubmitting(true);
+        try {
+            if (proofType === 'photo' && proofImage) {
+                await onSubmit('photo', proofImage);
+            } else if (proofType === 'text' && proofText.trim()) {
+                await onSubmit('text', proofText.trim());
+            } else {
+                 Alert.alert("Erreur", "Veuillez fournir une preuve valide.");
+            }
+        } catch (error) {
+             Alert.alert("Échec de l'envoi", "Une erreur est survenue. Veuillez réessayer.");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    if (!order) return null;
+
+    return (
+        <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+            <View style={styles.centeredView}>
+                <View style={styles.modalView}>
+                    <Text style={styles.modalTitle}>Preuve de Livraison</Text>
+                    <Text style={styles.modalText}>Commande #{order.id.slice(-6)}</Text>
+                    
+                    <View style={styles.proofTypeSelector}>
+                        <TouchableOpacity onPress={() => setProofType('photo')} style={[styles.tabButton, proofType === 'photo' && styles.activeTab]}>
+                           <Text style={[styles.tabText, proofType === 'photo' && styles.activeTabText]}>Photo</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setProofType('text')} style={[styles.tabButton, proofType === 'text' && styles.activeTab]}>
+                           <Text style={[styles.tabText, proofType === 'text' && styles.activeTabText]}>Texte</Text>
+                        </TouchableOpacity>
+                    </View>
+                    
+                    {proofType === 'photo' ? (
+                        <View style={{ alignItems: 'center', width: '100%' }}>
+                            <TouchableOpacity style={styles.imagePickerButton} onPress={pickImage}>
+                                <Ionicons name="camera" size={24} color="#fff" />
+                                <Text style={styles.choiceButtonText}>Choisir une photo</Text>
+                            </TouchableOpacity>
+                            {proofImage && <Image source={{ uri: proofImage }} style={styles.proofImagePreview} />}
+                        </View>
+                    ) : (
+                        <TextInput
+                            style={styles.proofTextInput}
+                            placeholder="Entrez le SMS, nom du réceptionnaire, etc."
+                            multiline
+                            value={proofText}
+                            onChangeText={setProofText}
+                        />
+                    )}
+                    <View style={styles.modalButtons}>
+                        <TouchableOpacity style={[styles.modalButton, styles.buttonClose]} onPress={onClose}>
+                            <Text style={styles.textStyle}>Annuler</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.modalButton, styles.buttonConfirm]} onPress={handleSubmit} disabled={isSubmitting}>
+                            {isSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.textStyle}>Soumettre</Text>}
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </View>
+        </Modal>
+    );
+};
+
+interface MapModalComponentProps {
+    visible: boolean;
+    onClose: () => void;
+    order: Order | null;
+    currentLocation: Location.LocationObject | null;
+    permissionError: string | null;
+}
+
+const MapModalComponent = ({ visible, onClose, order, currentLocation, permissionError }: MapModalComponentProps) => {
+    if (!order || !visible) return null;
+
+    const initialRegion = currentLocation
+        ? {
+              latitude: currentLocation.coords.latitude,
+              longitude: currentLocation.coords.longitude,
+              latitudeDelta: 0.0922,
+              longitudeDelta: 0.0421,
+          }
+        : null;
+
+    const deliveryCoords = {
+        latitude: order.deliveryCoordinates.latitude,
+        longitude: order.deliveryCoordinates.longitude,
+    };
+    
+    // Style de la carte personnalisé (identique à index.tsx pour une cohérence visuelle)
+    const mapStyle = [
+      { elementType: "geometry", stylers: [{ color: "#f5f5f5" }] },
+      { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+      { elementType: "labels.text.fill", stylers: [{ color: "#616161" }] },
+      { elementType: "labels.text.stroke", stylers: [{ color: "#f5f5f5" }] },
+      {
+        featureType: "administrative.land_parcel",
+        elementType: "labels.text.fill",
+        stylers: [{ color: "#bdbdbd" }],
+      },
+      {
+        featureType: "poi",
+        elementType: "geometry",
+        stylers: [{ color: "#eeeeee" }],
+      },
+      {
+        featureType: "poi",
+        elementType: "labels.text.fill",
+        stylers: [{ color: "#757575" }],
+      },
+      {
+        featureType: "poi.park",
+        elementType: "geometry",
+        stylers: [{ color: "#e5e5e5" }],
+      },
+      {
+        featureType: "poi.park",
+        elementType: "labels.text.fill",
+        stylers: [{ color: "#9e9e9e" }],
+      },
+      {
+        featureType: "road",
+        elementType: "geometry",
+        stylers: [{ color: "#ffffff" }],
+      },
+      {
+        featureType: "road.arterial",
+        elementType: "labels.text.fill",
+        stylers: [{ color: "#757575" }],
+      },
+      {
+        featureType: "road.highway",
+        elementType: "geometry",
+        stylers: [{ color: "#dadada" }],
+      },
+      {
+        featureType: "road.highway",
+        elementType: "labels.text.fill",
+        stylers: [{ color: "#616161" }],
+      },
+      {
+        featureType: "road.local",
+        elementType: "labels.text.fill",
+        stylers: [{ color: "#9e9e9e" }],
+      },
+      {
+        featureType: "transit.line",
+        elementType: "geometry",
+        stylers: [{ color: "#e5e5e5" }],
+      },
+      {
+        featureType: "transit.station",
+        elementType: "geometry",
+        stylers: [{ color: "#eeeeee" }],
+      },
+      {
+        featureType: "water",
+        elementType: "geometry",
+        stylers: [{ color: "#c9c9c9" }],
+      },
+      {
+        featureType: "water",
+        elementType: "labels.text.fill",
+        stylers: [{ color: "#9e9e9e" }],
+      },
+    ];
+
+    return (
+        <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+            <SafeAreaView style={{ flex: 1 }}>
+                <View style={styles.mapHeader}>
+                    <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                        <Ionicons name="close-circle" size={30} color="#666" />
+                    </TouchableOpacity>
+                    <Text style={styles.mapTitle}>Livraison de la Commande #{order.id.slice(-6)}</Text>
+                </View>
+                {permissionError ? (
+                    <View style={styles.mapErrorContainer}>
+                        <Text style={styles.mapErrorText}>{permissionError}</Text>
+                        <Text style={styles.mapErrorSubText}>Veuillez activer la localisation dans les paramètres de votre téléphone.</Text>
+                    </View>
+                ) : !initialRegion ? (
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color="#6C63FF" />
+                        <Text style={styles.loadingText}>Chargement de la carte...</Text>
+                    </View>
+                ) : (
+                    <MapView
+                        style={styles.map}
+                        provider={PROVIDER_GOOGLE}
+                        initialRegion={initialRegion}
+                        showsUserLocation
+                        followsUserLocation
+                        customMapStyle={mapStyle} // Ajout du style personnalisé
+                    >
+                        {/* Marqueur pour votre position (le livreur) */}
+                        <Marker
+                            coordinate={{
+                                latitude: currentLocation?.coords.latitude || 0,
+                                longitude: currentLocation?.coords.longitude || 0,
+                            }}
+                            title="Votre Position"
+                            pinColor="#6C63FF" // Couleur pour votre position
+                        />
+                        {/* Marqueur pour la destination */}
+                        <Marker
+                            coordinate={deliveryCoords}
+                            title="Destination"
+                            description={order.deliveryAddress}
+                            pinColor="#FF3B30" // Couleur pour la destination
+                        />
+                        {/* Ligne pour le trajet */}
+                        <Polyline
+                            coordinates={
+                                currentLocation
+                                    ? [
+                                          {
+                                              latitude: currentLocation.coords.latitude,
+                                              longitude: currentLocation.coords.longitude,
+                                          },
+                                          deliveryCoords,
+                                      ]
+                                    : [deliveryCoords] // Affiche seulement un point si la position actuelle n'est pas disponible
+                            }
+                            strokeColor="#6C63FF"
+                            strokeWidth={4}
+                        />
+                    </MapView>
+                )}
+            </SafeAreaView>
+        </Modal>
+    );
+};
+
+interface DeliveryHistoryModalProps {
+    visible: boolean;
+    onClose: () => void;
+    order: Order | null;
+}
+
+const DeliveryHistoryModal = ({ visible, onClose, order }: DeliveryHistoryModalProps) => {
+    if (!order || !visible) return null;
+    const deliveredAt = order.deliveredAt?.toDate();
+    const formattedDate = deliveredAt ? format(deliveredAt, 'd MMMM yyyy à HH:mm', { locale: fr }) : 'Non disponible';
+    return (
+        <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+            <View style={styles.centeredView}>
+                <View style={styles.modalView}>
+                    <Text style={styles.modalTitle}>Détails de la Livraison</Text>
+                    <ScrollView style={{ width: '100%', maxHeight: Dimensions.get('window').height * 0.7 }}>
+                        <View style={styles.modalInfoRow}>
+                            <Text style={styles.modalInfoLabel}>Commande :</Text>
+                            <Text style={styles.modalInfoValue}>#{order.id.slice(-6)}</Text>
+                        </View>
+                        <View style={styles.modalInfoRow}>
+                            <Text style={styles.modalInfoLabel}>Client :</Text>
+                            <Text style={styles.modalInfoValue}>{order.customerName}</Text>
+                        </View>
+                        <View style={styles.modalInfoRow}>
+                            <Text style={styles.modalInfoLabel}>Adresse :</Text>
+                            <Text style={styles.modalInfoValue}>{order.deliveryAddress}</Text>
+                        </View>
+                        <View style={styles.modalInfoRow}>
+                            <Text style={styles.modalInfoLabel}>Montant total :</Text>
+                            <Text style={styles.modalInfoValue}>{order.totalAmount} €</Text>
+                        </View>
+                        <View style={styles.modalInfoRow}>
+                            <Text style={styles.modalInfoLabel}>Date de livraison :</Text>
+                            <Text style={styles.modalInfoValue}>{formattedDate}</Text>
+                        </View>
+                        <View style={styles.modalInfoRow}>
+                            <Text style={styles.modalInfoLabel}>Statut :</Text>
+                            <Text style={styles.modalInfoValue}>{order.status === OrderStatus.Delivered ? "Livrée" : "Vérification manuelle"}</Text>
+                        </View>
+                        {order.proofType && (
+                            <>
+                                <View style={styles.modalInfoRow}>
+                                    <Text style={styles.modalInfoLabel}>Preuve de livraison :</Text>
+                                    <Text style={styles.modalInfoValue}>{order.proofType === 'photo' ? "Photo" : "Texte"}</Text>
+                                </View>
+                                {order.proofType === 'photo' && order.proofContent ? (
+                                    <Image source={{ uri: order.proofContent }} style={styles.proofImagePreview} />
+                                ) : (
+                                    <Text style={styles.proofTextContent}>{order.proofContent}</Text>
+                                )}
+                            </>
+                        )}
+                    </ScrollView>
+                    <TouchableOpacity style={[styles.modalButton, styles.buttonConfirm]} onPress={onClose}>
+                        <Text style={styles.textStyle}>Fermer</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </Modal>
+    );
+};
+
+// =================================================================
+// 🏡 Composant Principal (SellerDeliveryManagement)
+// =================================================================
 
 const SellerDeliveryManagement = () => {
   const { authUser, loading: authLoading } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingOrder, setProcessingOrder] = useState<string | null>(null);
-  const [currentLocation, setCurrentLocation] = useState<Location.LocationObject | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [isConfirmationModalVisible, setIsConfirmationModalVisible] = useState(false);
-  const mapRef = useRef<MapView | null>(null);
+  const [proofModalVisible, setProofModalVisible] = useState(false);
+  const [mapModalVisible, setMapModalVisible] = useState(false);
+  const [historyModalVisible, setHistoryModalVisible] = useState(false);
+  const { currentLocation, permissionError } = useLocationTracking();
 
-  // Récupérer la localisation de l'utilisateur
-  useEffect(() => {
-    (async () => {
+  const handleOpenMap = (order: Order) => {
+    setSelectedOrder(order);
+    setMapModalVisible(true);
+  };
+
+  const handleOpenProofModal = (order: Order) => {
+      setSelectedOrder(order);
+      setProofModalVisible(true);
+  };
+  
+  const handleOpenHistoryModal = (order: Order) => {
+      setSelectedOrder(order);
+      setHistoryModalVisible(true);
+  };
+
+  const handleUpdateStatus = async (orderId: string, newStatus: OrderStatus) => {
+      if (processingOrder) return;
+      setProcessingOrder(orderId);
       try {
-        let { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          console.error('Permission de localisation refusée');
-          return;
-        }
-        const locationSubscription = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.High,
-            timeInterval: 10000,
-            distanceInterval: 10,
-          },
-          (newLocation) => {
-            setCurrentLocation(newLocation);
-          }
-        );
-        return () => {
-          if (locationSubscription) {
-            locationSubscription.remove();
-          }
-        };
+          await updateDoc(doc(db, 'orders', orderId), { status: newStatus });
+          Alert.alert('Succès', `Statut de la commande mis à jour vers ${newStatus}.`);
       } catch (error) {
-        console.error("Erreur lors de la récupération de la localisation:", error);
+          console.error("Erreur lors de la mise à jour du statut:", error);
+          Alert.alert('Erreur', 'Impossible de mettre à jour le statut de la commande.');
+      } finally {
+          setProcessingOrder(null);
       }
-    })();
-  }, []);
+  };
 
-  // Chargement et écoute des commandes
+  const handleSendProof = async (proofType: 'photo' | 'text', content: string) => {
+      if (!selectedOrder) return;
+      
+      let proofUrl = content;
+      if (proofType === 'photo') {
+          try {
+              const response = await fetch(content);
+              const blob = await response.blob();
+              const imageRef = ref(storage, `proofs/${selectedOrder.id}-${Date.now()}`);
+              const uploadResult = await uploadBytes(imageRef, blob);
+              proofUrl = await getDownloadURL(uploadResult.ref);
+          } catch (error) {
+              console.error("Erreur lors de l'upload de l'image:", error);
+              throw new Error("Impossible d'envoyer la preuve. Veuillez réessayer.");
+          }
+      }
+
+      await updateDoc(doc(db, 'orders', selectedOrder.id), {
+          status: OrderStatus.ManualVerification,
+          proofType: proofType,
+          proofContent: proofUrl,
+          deliveredAt: serverTimestamp(),
+      });
+      setProofModalVisible(false);
+      Alert.alert('Succès', 'Preuve envoyée. La commande est en attente de vérification manuelle.');
+  };
+
   useEffect(() => {
-    if (authLoading || !authUser) {
-      setLoading(true);
-      return;
-    }
-    
-    // Assurez-vous que l'utilisateur est un vendeur
-    if (authUser.isSellerVerified !== true) {
-        setLoading(false);
-        setOrders([]);
-        return;
-    }
-
-    const ordersQuery = query(
+    if (!authUser?.id) return;
+    setLoading(true);
+    const q = query(
       collection(db, 'orders'),
       where('sellerId', '==', authUser.id),
-      where('status', 'in', ['confirmed', 'seller_delivering']),
+      orderBy('createdAt', 'desc')
     );
-
-    const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
-      const ordersData: Order[] = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      } as Order));
-      setOrders(ordersData);
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const fetchedOrders: Order[] = [];
+      querySnapshot.forEach((doc) => {
+        fetchedOrders.push({ id: doc.id, ...doc.data() } as Order);
+      });
+      setOrders(fetchedOrders);
       setLoading(false);
     }, (error) => {
-      console.error("Erreur lors de la récupération des commandes:", error);
+      console.error("Erreur de récupération des commandes:", error);
+      Alert.alert('Erreur', 'Impossible de récupérer vos commandes.');
       setLoading(false);
     });
-
     return () => unsubscribe();
-  }, [db, authUser, authLoading]);
+  }, [authUser]);
 
-  const handleConfirmDelivery = (order: Order) => {
-    setSelectedOrder(order);
-    setIsConfirmationModalVisible(true);
-  };
+  const renderOrder = ({ item: order }: { item: Order }) => {
+    const isDeliveryPending = order.status === OrderStatus.PendingDeliveryChoice;
+    const isDeliveryByMe = order.deliveryMethod === DeliveryMethod.SellerDelivery && order.status !== OrderStatus.Delivered;
 
-  const handleDeliveryCompletion = async () => {
-    if (!selectedOrder) return;
-
-    try {
-      setProcessingOrder(selectedOrder.id);
-      const orderRef = doc(db, 'orders', selectedOrder.id);
-
-      await updateDoc(orderRef, {
-        status: 'delivered',
-        paymentStatus: 'paid',
-        deliveredAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      // Réinitialiser les états après succès
-      setProcessingOrder(null);
-      setSelectedOrder(null);
-      setIsConfirmationModalVisible(false);
-    } catch (error) {
-      console.error('Erreur lors de la mise à jour de la commande:', error);
-      setProcessingOrder(null);
-    }
-  };
-
-  // Composant de modale de carte
-  const MapModalComponent = ({ order, onClose }: MapModalProps) => {
-    if (!order || !currentLocation) return null;
-
-    const [mapType, setMapType] = useState<'standard' | 'satellite' | 'terrain'>('standard');
-    const [showTraffic, setShowTraffic] = useState(false);
-
-    const deliveryCoords = order.deliveryCoordinates;
-    const driverCoords = currentLocation.coords;
-
-    // Correction de l'erreur TypeScript en s'assurant que `driverCoords` et `deliveryCoords` sont du bon type
-    const distanceKm = haversineDistance(driverCoords, deliveryCoords).toFixed(2);
-    // Simule une vitesse moyenne de 30 km/h
-    const etaMinutes = Math.round((parseFloat(distanceKm) / 30) * 60);
-
-    // Fonction pour appeler le client
-    const handleCallCustomer = () => {
-      if (order.customerPhone) {
-        Linking.openURL(`tel:${order.customerPhone}`);
-      }
+    const getStatusText = () => {
+        switch(order.status) {
+            case OrderStatus.PendingDeliveryChoice: return 'En attente de choix';
+            case OrderStatus.SellerDelivering: return 'En cours de livraison';
+            case OrderStatus.AppDelivering: return 'Livraison par l\'app';
+            case OrderStatus.Delivered: return 'Livrée';
+            case OrderStatus.ManualVerification: return 'Vérification manuelle';
+            case OrderStatus.Confirmed: return 'Confirmée';
+            default: return 'Inconnu';
+        }
     };
-
-    // Corrections d'erreurs: Utiliser await pour obtenir les données de la caméra de manière asynchrone
-    const handleZoomIn = async () => {
-      const camera = await mapRef.current?.getCamera();
-      if (camera && camera.zoom !== undefined) {
-        mapRef.current?.animateCamera({
-          zoom: camera.zoom + 1,
-        }, { duration: 500 });
-      }
+    
+    const getPaymentStatusText = () => {
+        switch(order.paymentStatus) {
+            case PaymentStatus.Paid: return 'Payée';
+            case PaymentStatus.PaidOnSite: return 'Payée sur place';
+            case PaymentStatus.Pending: return 'En attente';
+            case PaymentStatus.VerificationNeeded: return 'Vérification requise';
+            default: return 'Inconnu';
+        }
     };
-
-    const handleZoomOut = async () => {
-      const camera = await mapRef.current?.getCamera();
-      if (camera && camera.zoom !== undefined) {
-        mapRef.current?.animateCamera({
-          zoom: camera.zoom - 1,
-        }, { duration: 500 });
-      }
-    };
-
-    const handleRecenter = () => {
-        mapRef.current?.animateToRegion({
-            latitude: driverCoords.latitude,
-            longitude: driverCoords.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-        });
-    };
-
-    // Pour simuler un itinéraire plus réaliste, ajoutez des coordonnées intermédiaires
-    // Dans une application réelle, vous utiliseriez un service d'itinéraire (Google Directions, etc.)
-    const simulatedRoute = [
-      { latitude: driverCoords.latitude, longitude: driverCoords.longitude },
-      { latitude: driverCoords.latitude + (deliveryCoords.latitude - driverCoords.latitude) * 0.3, longitude: driverCoords.longitude + (deliveryCoords.longitude - driverCoords.longitude) * 0.1 },
-      { latitude: driverCoords.latitude + (deliveryCoords.latitude - driverCoords.latitude) * 0.7, longitude: driverCoords.longitude + (deliveryCoords.longitude - driverCoords.longitude) * 0.9 },
-      { latitude: deliveryCoords.latitude, longitude: deliveryCoords.longitude }
-    ];
 
     return (
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={!!order}
-        onRequestClose={onClose}
-      >
-        <SafeAreaView style={styles.mapModalContainer}>
-          <View style={styles.mapHeader}>
-            <TouchableOpacity onPress={onClose} style={styles.backButton}>
-              <Ionicons name="arrow-back" size={24} color="#333" />
-            </TouchableOpacity>
-            <Text style={styles.mapTitle}>Suivi de la livraison</Text>
-          </View>
-          <View style={styles.mapContainer}>
-            <MapView
-              ref={mapRef}
-              style={styles.map}
-              initialRegion={{
-                latitude: (driverCoords.latitude + deliveryCoords.latitude) / 2,
-                longitude: (driverCoords.longitude + deliveryCoords.longitude) / 2,
-                latitudeDelta: Math.abs(driverCoords.latitude - deliveryCoords.latitude) * 2,
-                longitudeDelta: Math.abs(driverCoords.longitude - deliveryCoords.longitude) * 2,
-              }}
-              mapType={mapType}
-              showsTraffic={showTraffic}
-              onMapReady={() => {
-                if (mapRef.current) {
-                  const coordinates = [
-                    { latitude: driverCoords.latitude, longitude: driverCoords.longitude },
-                    { latitude: deliveryCoords.latitude, longitude: deliveryCoords.longitude }
-                  ];
-                  mapRef.current.fitToCoordinates(coordinates, {
-                    edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
-                    animated: true,
-                  });
-                }
-              }}
-            >
-              {/* Cercle de précision de la position */}
-              <Circle
-                center={driverCoords}
-                radius={currentLocation?.coords.accuracy || 20}
-                fillColor="rgba(108, 99, 255, 0.2)"
-                strokeColor="rgba(108, 99, 255, 0.5)"
-              />
-              
-              {/* Marqueur du livreur */}
-              <Marker
-                coordinate={{ latitude: driverCoords.latitude, longitude: driverCoords.longitude }}
-                title="Votre position"
-                description="Position actuelle du livreur"
-              >
-                <View style={styles.markerContainer}>
-                  <Ionicons name="car-sport" size={32} color="#6C63FF" />
-                </View>
-                <Callout tooltip>
-                  <View style={styles.calloutContainer}>
-                    <Text style={styles.calloutText}>Vous êtes ici</Text>
-                  </View>
-                </Callout>
-              </Marker>
-              
-              {/* Marqueur du client */}
-              <Marker
-                coordinate={{ latitude: deliveryCoords.latitude, longitude: deliveryCoords.longitude }}
-                title="Client"
-                description="Adresse de livraison du client"
-              >
-                <View style={styles.markerContainer}>
-                  <Ionicons name="home" size={32} color="#28a745" />
-                </View>
-                <Callout tooltip>
-                  <View style={styles.calloutContainer}>
-                    <Text style={styles.calloutText}>Livraison</Text>
-                    <Text style={styles.calloutText}>Client: {order.customerName}</Text>
-                  </View>
-                </Callout>
-              </Marker>
-
-              {/* Ligne de route */}
-              <Polyline
-                coordinates={simulatedRoute}
-                strokeColor="#6C63FF"
-                strokeWidth={5}
-                lineDashPattern={[10, 5]}
-              />
-            </MapView>
-
-            {/* Contrôles de la carte */}
-            <View style={styles.mapControls}>
-                <View style={styles.zoomControls}>
-                    <TouchableOpacity style={styles.controlButton} onPress={handleZoomIn}>
-                        <Ionicons name="add" size={24} color="#fff" />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.controlButton} onPress={handleZoomOut}>
-                        <Ionicons name="remove" size={24} color="#fff" />
-                    </TouchableOpacity>
-                </View>
-                <TouchableOpacity style={styles.controlButton} onPress={handleRecenter}>
-                    <Ionicons name="locate" size={24} color="#fff" />
-                </TouchableOpacity>
-            </View>
-
-            {/* Type de carte et trafic */}
-            <View style={styles.mapOptions}>
-                <TouchableOpacity
-                    style={[styles.mapOptionButton, mapType === 'standard' && styles.mapOptionButtonActive]}
-                    onPress={() => setMapType('standard')}
-                >
-                    <Text style={styles.mapOptionText}>Standard</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.mapOptionButton, mapType === 'satellite' && styles.mapOptionButtonActive]}
-                    onPress={() => setMapType('satellite')}
-                >
-                    <Text style={styles.mapOptionText}>Satellite</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.mapOptionButton, showTraffic && styles.mapOptionButtonActive]}
-                    onPress={() => setShowTraffic(!showTraffic)}
-                >
-                    <Text style={styles.mapOptionText}>Trafic</Text>
-                </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.mapDetails}>
-            <Text style={styles.mapDetailText}><Text style={styles.boldText}>Client:</Text> {order.customerName}</Text>
-            <Text style={styles.mapDetailText}><Text style={styles.boldText}>Adresse:</Text> {order.deliveryAddress}</Text>
-            <Text style={styles.mapDetailText}><Text style={styles.boldText}>Total à encaisser:</Text> {order.totalAmount} CDF</Text>
-            <Text style={styles.mapDetailText}><Text style={styles.boldText}>Distance:</Text> {distanceKm} km</Text>
-            <Text style={styles.mapDetailText}><Text style={styles.boldText}>ETA:</Text> {etaMinutes} min</Text>
-            <Text style={styles.mapDetailText}><Text style={styles.boldText}>Articles:</Text></Text>
-            {order.items.map((item, index) => (
-                <Text key={index} style={styles.itemText}>- {item.name} ({item.quantity})</Text>
-            ))}
-
-            <View style={styles.detailButtons}>
-              <TouchableOpacity
-                onPress={handleCallCustomer}
-                style={[styles.detailButton, styles.callButton]}
-              >
-                <Ionicons name="call" size={20} color="#fff" />
-                <Text style={styles.detailButtonText}>Appeler le client</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => handleConfirmDelivery(order)}
-                style={[styles.detailButton, styles.confirmButton]}
-                disabled={processingOrder === order.id}
-              >
-                <Text style={styles.detailButtonText}>Confirmer la livraison</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </SafeAreaView>
-      </Modal>
-    );
-  };
-
-  // Composant de modale de confirmation
-  const ConfirmationModal = ({ order, visible, onClose, onConfirm }: ConfirmationModalProps) => {
-    if (!order) return null;
-    return (
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={visible}
-        onRequestClose={onClose}
-      >
-        <View style={styles.centeredView}>
-          <View style={styles.modalView}>
-            <Text style={styles.modalTitle}>Confirmer la livraison</Text>
-            <Text style={styles.modalText}>
-              Êtes-vous sûr de vouloir marquer cette commande comme livrée ?
-            </Text>
-            <Text style={styles.modalText}>
-              Client: <Text style={styles.boldText}>{order.customerName}</Text>
-            </Text>
-            <Text style={styles.modalText}>
-              Total: <Text style={styles.boldText}>{order.totalAmount} CDF</Text>
-            </Text>
-            <Text style={styles.modalText}>
-              Articles: <Text style={styles.boldText}>{order.items.map(i => i.name).join(', ')}</Text>
-            </Text>
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.buttonClose]}
-                onPress={onClose}
-              >
-                <Text style={styles.textStyle}>Annuler</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.buttonConfirm]}
-                onPress={onConfirm}
-                disabled={processingOrder === order.id}
-              >
-                {processingOrder === order.id ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.textStyle}>Confirmer</Text>
-                )}
-              </TouchableOpacity>
-            </View>
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardTitle}>Commande #{order.id.slice(-6)}</Text>
+          <View style={[styles.statusBadge, isDeliveryPending && styles.pendingBadge]}>
+            <Text style={styles.statusText}>{getStatusText()}</Text>
           </View>
         </View>
-      </Modal>
+        <Text style={styles.cardInfo}>
+          <Text style={styles.boldText}>Client:</Text> {order.customerName}
+        </Text>
+        <Text style={styles.cardInfo}>
+          <Text style={styles.boldText}>Montant:</Text> {order.totalAmount} €
+        </Text>
+        <Text style={styles.cardInfo}>
+          <Text style={styles.boldText}>Paiement:</Text> {getPaymentStatusText()}
+        </Text>
+        <Text style={styles.cardInfo}>
+          <Text style={styles.boldText}>Adresse:</Text> {order.deliveryAddress}
+        </Text>
+        
+        <View style={styles.cardActions}>
+          {isDeliveryPending && (
+            <View style={styles.deliveryChoices}>
+              <TouchableOpacity
+                style={styles.choiceButton}
+                onPress={() => handleUpdateStatus(order.id, OrderStatus.SellerDelivering)}
+              >
+                <Ionicons name="car-sport-outline" size={20} color="#fff" />
+                <Text style={styles.choiceButtonText}>Livrer moi-même</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.choiceButton, styles.appDeliveryButton]}
+                onPress={() => handleUpdateStatus(order.id, OrderStatus.AppDelivering)}
+              >
+                <Ionicons name="business-outline" size={20} color="#6C63FF" />
+                <Text style={[styles.choiceButtonText, styles.appDeliveryButtonText]}>Livraison par app</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {isDeliveryByMe && (
+            <View style={styles.deliveryActions}>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.mapButton]}
+                onPress={() => handleOpenMap(order)}
+              >
+                <Ionicons name="map-outline" size={20} color="#fff" />
+                <Text style={styles.actionButtonText}>Voir la carte</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.confirmButton]}
+                onPress={() => handleOpenProofModal(order)}
+              >
+                <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
+                <Text style={styles.actionButtonText}>Confirmer la livraison</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {order.status === OrderStatus.Delivered && (
+            <TouchableOpacity
+              style={[styles.actionButton, styles.historyButton]}
+              onPress={() => handleOpenHistoryModal(order)}
+            >
+              <Ionicons name="document-text-outline" size={20} color="#6C63FF" />
+              <Text style={styles.actionButtonText}>Détails de la livraison</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
     );
   };
 
-  const renderOrderItem = ({ item }: { item: Order }) => (
-    <View style={styles.orderCard}>
-      <Text style={styles.orderId}>Commande #{item.id.slice(-6)}</Text>
-      <Text style={styles.customerName}>Client: {item.customerName}</Text>
-      <Text style={styles.deliveryAddress}>Livraison à: {item.deliveryAddress}</Text>
-      <View style={styles.cardFooter}>
-        <Text style={styles.totalAmount}>Total: {item.totalAmount} CDF</Text>
-        {item.deliveryMethod === 'seller_delivery' && item.status === 'seller_delivering' && (
-          <TouchableOpacity
-            onPress={() => setSelectedOrder(item)}
-            style={styles.mapButton}
-          >
-            <Ionicons name="map" size={20} color="#fff" />
-            <Text style={styles.mapButtonText}>Voir la carte</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
-  );
+  const MemoizedOrder = React.memo(renderOrder);
 
   if (authLoading || loading) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
+      <View style={styles.centered}>
         <ActivityIndicator size="large" color="#6C63FF" />
-        <Text style={styles.loadingText}>Chargement en cours...</Text>
-      </SafeAreaView>
-    );
-  }
-
-  // Vérifier si l'utilisateur est un vendeur et a le rôle approprié
-  if (!authUser || authUser.isSellerVerified !== true) {
-    return (
-      <SafeAreaView style={styles.noOrdersContainer}>
-        <Ionicons name="alert-circle-outline" size={64} color="#999" />
-        <Text style={styles.noOrdersText}>Accès non autorisé</Text>
-        <Text style={styles.noOrdersSubText}>Cette page est réservée aux vendeurs vérifiés.</Text>
-      </SafeAreaView>
+        <Text style={{ marginTop: 20 }}>Chargement de vos commandes...</Text>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Gestion des Livraisons</Text>
-      </View>
-      {orders.length === 0 ? (
-        <View style={styles.noOrdersContainer}>
-          <Ionicons name="cart-outline" size={64} color="#999" />
-          <Text style={styles.noOrdersText}>Aucune commande à livrer</Text>
-          <Text style={styles.noOrdersSubText}>Les commandes de vos clients apparaîtront ici une fois confirmées.</Text>
-        </View>
-      ) : (
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
+        <Text style={styles.header}>Gérer les Livraisons</Text>
         <FlatList
           data={orders}
-          renderItem={renderOrderItem}
           keyExtractor={(item) => item.id}
+          renderItem={({ item }) => <MemoizedOrder item={item} />}
           contentContainerStyle={styles.listContainer}
+          ListEmptyComponent={
+            <View style={styles.emptyStateContainer}>
+                <Ionicons name="car-outline" size={80} color="#ccc" />
+                <Text style={styles.emptyStateText}>Aucune commande disponible</Text>
+            </View>
+          }
         />
-      )}
-      <MapModalComponent order={selectedOrder} onClose={() => setSelectedOrder(null)} />
-      <ConfirmationModal
-        visible={isConfirmationModalVisible}
-        order={selectedOrder}
-        onClose={() => setIsConfirmationModalVisible(false)}
-        onConfirm={handleDeliveryCompletion}
-      />
+        <ProofOfDeliveryModal visible={proofModalVisible} onClose={() => setProofModalVisible(false)} onSubmit={handleSendProof} order={selectedOrder} />
+        <MapModalComponent visible={mapModalVisible} onClose={() => setMapModalVisible(false)} order={selectedOrder} currentLocation={currentLocation} permissionError={permissionError} />
+        <DeliveryHistoryModal visible={historyModalVisible} onClose={() => setHistoryModalVisible(false)} order={selectedOrder} />
+      </View>
     </SafeAreaView>
   );
 };
 
+// =================================================================
+// 💅 Styles (ajout de styles manquants)
+// =================================================================
+
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: '#f7f7f7',
   },
-  header: {
-    padding: 15,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+  container: {
+    flex: 1,
+    paddingHorizontal: 15,
   },
-  headerTitle: {
+  header: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#333',
+    marginVertical: 20,
+    textAlign: 'center',
+  },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   listContainer: {
-    padding: 10,
+    paddingBottom: 20,
   },
-  orderCard: {
+  emptyStateContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingVertical: 50,
+  },
+  emptyStateText: {
+      marginTop: 20,
+      fontSize: 18,
+      color: '#999',
+  },
+  card: {
     backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 10,
-    elevation: 2,
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 15,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  orderId: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  customerName: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 5,
-  },
-  deliveryAddress: {
-    fontSize: 14,
-    color: '#999',
-    marginTop: 2,
-  },
-  cardFooter: {
+  cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
+    marginBottom: 10,
   },
-  totalAmount: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#6C63FF',
-  },
-  mapButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#6C63FF',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  mapButtonText: {
-    color: '#fff',
-    marginLeft: 5,
-    fontWeight: 'bold',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f7f7f7',
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#666',
-  },
-  noOrdersContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  noOrdersText: {
+  cardTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#666',
-    marginTop: 10,
-    marginBottom: 5,
-  },
-  noOrdersSubText: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
-  },
-  mapModalContainer: {
-    flex: 1,
-    backgroundColor: '#f7f7f7',
-  },
-  mapHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 15,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  backButton: {
-    marginRight: 10,
-  },
-  mapTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
     color: '#333',
   },
-  mapContainer: {
-    width: '100%',
-    height: '60%',
-    alignSelf: 'center',
+  statusBadge: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 20,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
   },
-  map: {
-    ...StyleSheet.absoluteFillObject,
+  pendingBadge: {
+      backgroundColor: '#FFC107',
   },
-  mapDetails: {
-    padding: 15,
-  },
-  mapDetailText: {
-    fontSize: 16,
-    color: '#333',
-    marginBottom: 5,
-  },
-  confirmButton: {
-    backgroundColor: '#28a745',
-    padding: 15,
-    borderRadius: 25,
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  confirmButtonText: {
+  statusText: {
     color: '#fff',
     fontWeight: 'bold',
-    fontSize: 16,
+    fontSize: 12,
+  },
+  cardInfo: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 5,
   },
   boldText: {
     fontWeight: 'bold',
   },
-  // Styles pour les modales personnalisées
+  cardActions: {
+    marginTop: 15,
+  },
+  deliveryChoices: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  choiceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6C63FF',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    flex: 1,
+    marginRight: 10,
+    justifyContent: 'center',
+  },
+  appDeliveryButton: {
+      backgroundColor: '#E6E4FF',
+      borderWidth: 1,
+      borderColor: '#6C63FF',
+  },
+  choiceButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    marginLeft: 5,
+    fontSize: 14,
+  },
+  appDeliveryButtonText: {
+      color: '#6C63FF',
+  },
+  deliveryActions: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: 10,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    marginLeft: 5,
+    fontSize: 14,
+  },
+  mapButton: {
+      backgroundColor: '#6C63FF',
+      marginRight: 10,
+  },
+  confirmButton: {
+      backgroundColor: '#28a745',
+  },
+  historyButton: {
+      backgroundColor: '#fff',
+      borderWidth: 1,
+      borderColor: '#6C63FF',
+  },
+  // Styles pour les Modales
   centeredView: {
     flex: 1,
     justifyContent: 'center',
@@ -705,136 +860,171 @@ const styles = StyleSheet.create({
     padding: 35,
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 5,
+    width: '90%',
   },
   modalTitle: {
-    marginBottom: 15,
-    textAlign: 'center',
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    marginBottom: 15,
+    textAlign: 'center',
   },
   modalText: {
     marginBottom: 15,
     textAlign: 'center',
-    fontSize: 16,
-    color: '#666',
   },
   modalButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
-    marginTop: 10,
+    marginTop: 20,
   },
   modalButton: {
     borderRadius: 20,
-    padding: 12,
+    padding: 10,
     elevation: 2,
     flex: 1,
     marginHorizontal: 5,
     alignItems: 'center',
   },
   buttonClose: {
-    backgroundColor: '#888',
+    backgroundColor: '#FF6B6B',
   },
   buttonConfirm: {
-    backgroundColor: '#6C63FF',
+    backgroundColor: '#28a745',
   },
   textStyle: {
     color: 'white',
     fontWeight: 'bold',
     textAlign: 'center',
   },
-  // Nouveaux styles pour les contrôles de la carte
-  mapControls: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    zIndex: 1,
+  proofTypeSelector: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      marginBottom: 20,
+      width: '100%',
   },
-  zoomControls: {
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 15,
-    marginBottom: 10,
+  tabButton: {
+      paddingVertical: 10,
+      paddingHorizontal: 20,
+      borderBottomWidth: 2,
+      borderBottomColor: 'transparent',
   },
-  controlButton: {
-    padding: 10,
+  activeTab: {
+      borderBottomColor: '#6C63FF',
   },
-  mapOptions: {
-    position: 'absolute',
-    bottom: 10,
-    left: 10,
-    zIndex: 1,
+  tabText: {
+      fontSize: 16,
+      color: '#999',
+      fontWeight: 'bold',
+  },
+  activeTabText: {
+      color: '#6C63FF',
+  },
+  imagePickerButton: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 20,
-    padding: 5,
-  },
-  mapOptionButton: {
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 15,
-  },
-  mapOptionButtonActive: {
     backgroundColor: '#6C63FF',
-  },
-  mapOptionText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  markerContainer: {
+    padding: 15,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 10,
+    width: '100%',
   },
-  calloutContainer: {
-    backgroundColor: 'white',
-    borderRadius: 8,
+  proofImagePreview: {
+    width: '100%',
+    height: 150,
+    borderRadius: 10,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  proofTextInput: {
+    width: '100%',
+    height: 120,
+    borderColor: '#ddd',
+    borderWidth: 1,
+    borderRadius: 10,
     padding: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 5,
-    alignItems: 'center',
+    textAlignVertical: 'top',
+    fontSize: 16,
   },
-  calloutText: {
-    fontSize: 14,
-    color: '#333',
-  },
-  detailButtons: {
+  modalInfoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 20,
+    width: '100%',
+    marginBottom: 10,
   },
-  detailButton: {
+  modalInfoLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  modalInfoValue: {
+    fontSize: 16,
+    color: '#666',
+    flexShrink: 1,
+  },
+  proofTextContent: {
+    fontSize: 16,
+    fontStyle: 'italic',
+    color: '#555',
+    marginTop: 10,
+    textAlign: 'center',
+    width: '100%',
+  },
+  // Nouveaux styles pour MapModalComponent
+  map: {
+    flex: 1,
+  },
+  mapHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 15,
-    borderRadius: 25,
-    justifyContent: 'center',
-    flex: 1,
-    marginHorizontal: 5,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
   },
-  detailButtonText: {
-    color: '#fff',
+  closeButton: {
+    marginRight: 15,
+  },
+  mapTitle: {
+    fontSize: 18,
     fontWeight: 'bold',
-    fontSize: 16,
-    marginLeft: 5,
+    color: '#333',
   },
-  callButton: {
-    backgroundColor: '#6C63FF',
+  mapErrorContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 20,
+      backgroundColor: '#f7f7f7',
   },
-  itemText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 10,
+  mapErrorText: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: '#d9534f',
+      textAlign: 'center',
   },
+  mapErrorSubText: {
+      marginTop: 10,
+      fontSize: 14,
+      color: '#666',
+      textAlign: 'center',
+  },
+  loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: '#f7f7f7',
+  },
+  loadingText: {
+      marginTop: 10,
+      fontSize: 16,
+      color: '#666',
+  }
 });
-
 export default SellerDeliveryManagement;

@@ -22,7 +22,7 @@ import { db } from '@/services/firebase';
 const { width } = Dimensions.get('window');
 
 // Placeholder pour les images (à remplacer par une vraie image locale si possible)
-const PLACEHOLDER_IMAGE = require('@/assets/images/icon.png'); // Assurez-vous d'avoir une image à cet emplacement
+const PLACEHOLDER_IMAGE = require('@/assets/images/icon.jpg'); // Assurez-vous d'avoir une image à cet emplacement
 
 interface NewsArticle {
   id: string;

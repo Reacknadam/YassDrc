@@ -17,9 +17,7 @@ import { useAuth } from '@/context/AuthContext';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 
-// Définition du type pour les noms d'icônes
 type IconName = keyof typeof Ionicons.glyphMap;
-// Type pour les onglets valides
 type ValidTab = 'home' | 'help' | 'conv' | 'profile' | 'news' | 'check';
 
 const { width } = Dimensions.get('window');
@@ -29,15 +27,12 @@ export default function TabsLayout() {
   const router = useRouter();
   const { authUser } = useAuth();
   const [activeTab, setActiveTab] = useState<ValidTab>('home');
-  const [navVisible, setNavVisible] = useState(true);
   const [isSeller, setIsSeller] = useState(false);
   const indicatorPosition = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(0)).current;
 
-  // Écoute en temps réel des changements du statut vendeur
+  // Écoute en temps réel du statut vendeur
   useEffect(() => {
     if (!authUser?.id) return;
-
     const userRef = doc(db, 'users', authUser.id);
     const unsubscribe = onSnapshot(userRef, (doc) => {
       if (doc.exists()) {
@@ -45,11 +40,9 @@ export default function TabsLayout() {
         setIsSeller(userData.isSellerVerified || false);
       }
     });
-
     return () => unsubscribe();
   }, [authUser?.id]);
 
-  // Calcul dynamique du nombre d'onglets et de leur largeur
   const tabCount = isSeller ? 5 : 4;
   const TAB_WIDTH = width / tabCount;
 
@@ -66,135 +59,85 @@ export default function TabsLayout() {
     }).start();
   };
 
-  const toggleNavigation = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Animated.timing(translateY, {
-      toValue: navVisible ? TAB_HEIGHT : 0,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-    setNavVisible(!navVisible);
-  };
-
-  // Déterminer l'index de chaque onglet en fonction du statut vendeur
   const getTabIndex = (tab: ValidTab): number => {
     const baseTabs = ['home', 'help', 'conv', 'profile'];
     const sellerTabs = ['home', 'help', 'check', 'conv', 'profile'];
-    
     const tabsArray = isSeller ? sellerTabs : baseTabs;
     return tabsArray.indexOf(tab);
   };
 
   return (
-    <SafeAreaProvider>
-      {/* Bouton toggle pour afficher/cacher la navigation */}
-      <TouchableOpacity 
-        style={styles.toggleButton} 
-        onPress={toggleNavigation}
-      >
-        <LinearGradient
-          colors={navVisible ? ['#6E45E2', '#88D3CE'] : ['#6E45E2', '#88D3CE']}
-          style={styles.toggleGradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
+    <SafeAreaProvider style={{ flex: 1 }}>
+      <View style={{ flex: 1 }}>
+        {/* Composant Tabs */}
+        <Tabs
+          screenOptions={{
+            tabBarShowLabel: false,
+            tabBarStyle: { display: 'none' },
+            headerShown: false,
+          }}
         >
-          <Ionicons 
-            name={navVisible ? "chevron-down" : "chevron-up"} 
-            size={20} 
-            color="#FFF" 
-          />
-        </LinearGradient>
-      </TouchableOpacity>
+          <Tabs.Screen name="home" />
+          <Tabs.Screen name="help" />
+          <Tabs.Screen name="conv" />
+          <Tabs.Screen name="profile" />
+          <Tabs.Screen name="news" />
+          <Tabs.Screen name="check" />
+        </Tabs>
 
-      {/* Barre de navigation avec animation */}
-      <Animated.View style={[
-        styles.navContainer, 
-        { transform: [{ translateY }] }
-      ]}>
-        <LinearGradient
-          colors={['rgba(255,255,255,0.95)', 'rgba(245,245,245,0.97)']}
-          style={styles.navBar}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-        >
-          {/* Indicateur animé */}
-          <Animated.View 
-            style={[
-              styles.indicator, 
-              { 
-                transform: [{ translateX: indicatorPosition }],
-                width: TAB_WIDTH - 30,
-              }
-            ]} 
-          />
-          
-          {/* Boutons */}
-          <View style={styles.tabsContainer}>
-            <NavButton 
-              icon="home-outline" 
-              activeIcon="home"
-              label="Accueil"
-              active={activeTab === 'home'}
-              onPress={() => handleTabPress('home', getTabIndex('home'))}
+        {/* Barre de navigation en bas */}
+        <View style={styles.navWrapper}>
+          <LinearGradient
+            colors={['rgba(255,255,255,0.95)', 'rgba(245,245,245,0.97)']}
+            style={styles.navBar}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+          >
+            <Animated.View 
+              style={[
+                styles.indicator, 
+                { transform: [{ translateX: indicatorPosition }], width: TAB_WIDTH - 30 }
+              ]} 
             />
-            
-            <NavButton 
-              icon="help-circle-outline" 
-              activeIcon="help-circle"
-              label="Aide"
-              active={activeTab === 'help'}
-              onPress={() => handleTabPress('help', getTabIndex('help'))}
-            />
-            
-            {isSeller && (
+
+            <View style={styles.tabsContainer}>
               <NavButton 
-                icon="checkmark-circle-outline" 
-                activeIcon="checkmark-circle"
-                label="Vérif"
-                active={activeTab === 'check'}
-                onPress={() => handleTabPress('check', getTabIndex('check'))}
+                icon="home-outline" 
+                activeIcon="home"
+                label="Accueil"
+                active={activeTab === 'home'}
+                onPress={() => handleTabPress('home', getTabIndex('home'))}
               />
-            )}
+              
             
-            <NavButton 
-              icon="chatbubbles-outline" 
-              activeIcon="chatbubbles"
-              label="Messages"
-              active={activeTab === 'conv'}
-              onPress={() => handleTabPress('conv', getTabIndex('conv'))}
-            />
-            
-            <NavButton 
-              icon="person-outline" 
-              activeIcon="person"
-              label="Profil"
-              active={activeTab === 'profile'}
-              onPress={() => handleTabPress('profile', getTabIndex('profile'))}
-            />
-          </View>
-        </LinearGradient>
-      </Animated.View>
+              
+              {isSeller && (
+                <NavButton 
+                  icon="checkmark-circle-outline" 
+                  activeIcon="checkmark-circle"
+                  label="Livraison"
+                  active={activeTab === 'check'}
+                  onPress={() => handleTabPress('check', getTabIndex('check'))}
+                />
+              )}
+       
 
-      {/* Composant Tabs */}
-      <Tabs
-        screenOptions={{
-          tabBarShowLabel: false,
-          tabBarStyle: { display: 'none' },
-          headerShown: false,
-        }}
-      >
-        <Tabs.Screen name="home" />
-        <Tabs.Screen name="help" />
-        <Tabs.Screen name="conv" />
-        <Tabs.Screen name="profile" />
-        <Tabs.Screen name="news" />
-        <Tabs.Screen name="check" />
-      </Tabs>
+              
+              <NavButton 
+                icon="person-outline" 
+                activeIcon="person"
+                label="Profil"
+                active={activeTab === 'profile'}
+                onPress={() => handleTabPress('profile', getTabIndex('profile'))}
+              />
+            </View>
+          </LinearGradient>
+        </View>
+      </View>
     </SafeAreaProvider>
   );
 }
 
-// Composant de bouton personnalisé
 interface NavButtonProps {
   icon: IconName;
   activeIcon?: IconName;
@@ -203,58 +146,28 @@ interface NavButtonProps {
   onPress: () => void;
 }
 
-const NavButton = ({ 
-  icon, 
-  activeIcon,
-  label,
-  active, 
-  onPress,
-}: NavButtonProps) => {
-  return (
-    <TouchableOpacity 
-      style={styles.tabButton}
-      onPress={onPress}
-    >
-      {active ? (
-        <LinearGradient
-          colors={['#6E45E2', '#88D3CE']}
-          style={styles.iconBackground}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
-          <Ionicons 
-            name={activeIcon || icon} 
-            size={24} 
-            color="#FFF" 
-          />
-        </LinearGradient>
-      ) : (
-        <Ionicons 
-          name={icon} 
-          size={24} 
-          color="#888" 
-        />
-      )}
-      <Text style={[styles.label, active && styles.activeLabel]}>
-        {label}
-      </Text>
-    </TouchableOpacity>
-  );
-};
+const NavButton = ({ icon, activeIcon, label, active, onPress }: NavButtonProps) => (
+  <TouchableOpacity style={styles.tabButton} onPress={onPress}>
+    {active ? (
+      <LinearGradient
+        colors={['#6E45E2', '#88D3CE']}
+        style={styles.iconBackground}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <Ionicons name={activeIcon || icon} size={24} color="#FFF" />
+      </LinearGradient>
+    ) : (
+      <Ionicons name={icon} size={24} color="#888" />
+    )}
+    <Text style={[styles.label, active && styles.activeLabel]}>{label}</Text>
+  </TouchableOpacity>
+);
 
 const styles = StyleSheet.create({
-  navContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -5 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 10,
+  navWrapper: {
+    // Remplacement de absolute par normal flow
+    width: '100%',
   },
   navBar: {
     borderTopLeftRadius: 20,
@@ -300,23 +213,5 @@ const styles = StyleSheet.create({
   activeLabel: {
     color: '#6E45E2',
     fontFamily: 'Inter-SemiBold',
-  },
-  toggleButton: {
-    position: 'absolute',
-    bottom: TAB_HEIGHT + 15,
-    right: 20,
-    zIndex: 101,
-  },
-  toggleGradient: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 5,
   },
 });

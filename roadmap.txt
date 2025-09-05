@@ -64,3 +64,548 @@ fonction pour init un paiement
 
 PS C:\Users\PC\Documents\__PROJET_ CAPITAUX__\mes apps\yass-drc version definitive\YassDrc> eas build -p android --profile apk
 >> 
+
+
+
+
+const PAYMENT_WORKER_URL = 'https://yass-webhook.israelntalu328.workers.dev';
+const GOOGLE_MAPS_API_KEY = 'AIzaSyDFIO7vLUTgo-jlRT2i77uHvEqoxgJfRj4'; 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Voici le code complet pour intégrer la page de paiement pawaPay dans une WebView modale avec gestion du returnUrl pour Expo :
+
+```javascript
+import { useAuth } from '@/context/AuthContext';
+import { db } from '@/firebase/config';
+import { router } from 'expo-router';
+import { doc, updateDoc } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { WebView } from 'react-native-webview';
+import { v4 as uuidv4 } from 'uuid';
+
+const API_BASE_URL = 'https://api.sandbox.pawapay.io/v2';
+const YOUR_API_TOKEN = 'YOUR_PAWAPAY_API_TOKEN'; // Remplacez par votre token
+
+const SubscriptionConfirmation = () => {
+  const { authUser } = useAuth();
+  const [status, setStatus] = useState('idle');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentUrl, setPaymentUrl] = useState('');
+  const [currentDepositId, setCurrentDepositId] = useState('');
+
+  // Générer un returnUrl qui fonctionne avec Expo
+  const getReturnUrl = () => {
+    // Pour Expo Go en développement
+    if (__DEV__) {
+      return `exp://192.168.1.100:8081/--/payment-return`; // Remplacez par votre IP locale
+    }
+    // Pour production avec custom scheme
+    return `yourapp://payment-return`;
+  };
+
+  const initiatePayment = async () => {
+    if (!authUser?.id) {
+      setStatus('error');
+      setErrorMessage('Utilisateur non authentifié.');
+      return;
+    }
+
+    setStatus('loading');
+    const depositId = uuidv4();
+    setCurrentDepositId(depositId);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/paymentpage`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${YOUR_API_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          depositId: depositId,
+          returnUrl: getReturnUrl(),
+          amountDetails: {
+            amount: '5000',
+            currency: 'CDF'
+          },
+          country: 'COD', // République Démocratique du Congo
+          reason: 'Abonnement vendeur',
+          customerMessage: 'Abonnement mensuel'
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.failureReason?.failureMessage || "Impossible d'initier le paiement");
+      }
+
+      const data = await response.json();
+      setPaymentUrl(data.redirectUrl);
+      setShowPaymentModal(true);
+      setStatus('pending');
+
+      // Sauvegarder dans Firebase
+      await updateDoc(doc(db, 'users', authUser.id), {
+        paymentStatus: 'pending',
+        currentDepositId: depositId,
+      });
+
+    } catch (error) {
+      console.error("Erreur initiation paiement:", error);
+      setStatus('error');
+      setErrorMessage(error.message || 'Erreur réseau.');
+      
+      if (authUser?.id) {
+        await updateDoc(doc(db, 'users', authUser.id), { 
+          paymentStatus: 'failed' 
+        });
+      }
+    }
+  };
+
+  const handleWebViewNavigationStateChange = (navState) => {
+    const { url } = navState;
+    
+    // Détecter le retour via returnUrl
+    if (url.includes('payment-return') || url.includes('yourapp://')) {
+      setShowPaymentModal(false);
+      
+      // Extraire le depositId de l'URL si présent
+      const urlParams = new URLSearchParams(url.split('?')[1] || '');
+      const returnedDepositId = urlParams.get('depositId') || currentDepositId;
+      
+      // Vérifier le statut du paiement
+      checkPaymentStatus(returnedDepositId);
+    }
+  };
+
+  const checkPaymentStatus = async (depositId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/deposits/${depositId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${YOUR_API_TOKEN}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Erreur lors de la vérification du statut');
+      }
+
+      const statusData = await response.json();
+      
+      if (statusData.status === 'FOUND' && statusData.data) {
+        const paymentStatus = statusData.data.status;
+        
+        if (paymentStatus === 'COMPLETED') {
+          setStatus('success');
+          await updateDoc(doc(db, 'users', authUser.id), {
+            paymentStatus: 'success',
+            isSellerVerified: true,
+          });
+        } else if (paymentStatus === 'FAILED') {
+          setStatus('error');
+          setErrorMessage('Paiement échoué.');
+          await updateDoc(doc(db, 'users', authUser.id), { 
+            paymentStatus: 'failed' 
+          });
+        } else {
+          // Toujours en cours, continuer à vérifier
+          setTimeout(() => checkPaymentStatus(depositId), 3000);
+        }
+      }
+    } catch (error) {
+      console.error("Erreur vérification statut:", error);
+      setStatus('error');
+      setErrorMessage('Erreur lors de la vérification du paiement.');
+    }
+  };
+
+  const closePaymentModal = () => {
+    setShowPaymentModal(false);
+    setStatus('idle');
+  };
+
+  // Interface de chargement
+  if (status === 'loading') {
+    return (
+      <View style={styles.centeredView}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+        <Text style={styles.loadingText}>Initialisation du paiement...</Text>
+      </View>
+    );
+  }
+
+  // Interface d'attente
+  if (status === 'pending') {
+    return (
+      <View style={styles.centeredView}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+        <Text style={styles.title}>Paiement en cours...</Text>
+        <Text style={styles.text}>Veuillez compléter le paiement dans la fenêtre qui s'est ouverte.</Text>
+        <TouchableOpacity 
+          style={styles.cancelButton} 
+          onPress={closePaymentModal}
+        >
+          <Text style={styles.cancelButtonText}>Annuler</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Interface de succès
+  if (status === 'success') {
+    return (
+      <View style={styles.centeredView}>
+        <Text style={styles.successTitle}>Paiement réussi 🎉</Text>
+        <Text style={styles.text}>Votre abonnement vendeur est maintenant actif.</Text>
+        <TouchableOpacity 
+          style={styles.returnButton} 
+          onPress={() => router.push('/profile')}
+        >
+          <Text style={styles.returnButtonText}>Retour au profil</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Interface d'erreur
+  if (status === 'error') {
+    return (
+      <View style={styles.centeredView}>
+        <Text style={styles.errorTitle}>Échec du paiement</Text>
+        <Text style={styles.errorText}>{errorMessage}</Text>
+        <TouchableOpacity 
+          style={styles.retryButton} 
+          onPress={() => setStatus('idle')}
+        >
+          <Text style={styles.retryButtonText}>Réessayer</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Interface principale
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Abonnement Vendeur</Text>
+        <Text style={styles.subtitle}>Finalisez votre inscription pour devenir vendeur vérifié.</Text>
+      </View>
+
+      <View style={styles.priceCard}>
+        <Text style={styles.priceValue}>5000 CDF</Text>
+        <Text style={styles.priceLabel}>Abonnement mensuel</Text>
+      </View>
+
+      <TouchableOpacity
+        style={styles.payButton}
+        onPress={initiatePayment}
+      >
+        <Text style={styles.payButtonText}>Payer 5000 CDF</Text>
+      </TouchableOpacity>
+
+      {/* Modal WebView pour le paiement */}
+      <Modal
+        visible={showPaymentModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={closePaymentModal}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Paiement pawaPay</Text>
+            <TouchableOpacity onPress={closePaymentModal}>
+              <Text style={styles.closeButton}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {paymentUrl ? (
+            <WebView
+              source={{ uri: paymentUrl }}
+              onNavigationStateChange={handleWebViewNavigationStateChange}
+              style={styles.webview}
+              startInLoadingState={true}
+              renderLoading={() => (
+                <View style={styles.webviewLoading}>
+                  <ActivityIndicator size="large" color="#6C63FF" />
+                </View>
+              )}
+            />
+          ) : (
+            <View style={styles.centeredView}>
+              <ActivityIndicator size="large" color="#6C63FF" />
+              <Text>Chargement de la page de paiement...</Text>
+            </View>
+          )}
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: { 
+    flex: 1, 
+    padding: 20, 
+    backgroundColor: '#f5f5f5' 
+  },
+  centeredView: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    padding: 20 
+  },
+  header: { 
+    alignItems: 'center', 
+    marginBottom: 30 
+  },
+  title: { 
+    fontSize: 24, 
+    fontWeight: 'bold', 
+    textAlign: 'center',
+    color: '#333'
+  },
+  subtitle: { 
+    fontSize: 16, 
+    color: '#666', 
+    textAlign: 'center', 
+    marginTop: 8 
+  },
+  priceCard: {
+    backgroundColor: '#fff',
+    padding: 30,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginBottom: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  priceValue: { 
+    fontSize: 48, 
+    fontWeight: 'bold',
+    color: '#6C63FF'
+  },
+  priceLabel: { 
+    fontSize: 16, 
+    color: '#999', 
+    marginTop: 8 
+  },
+  payButton: { 
+    backgroundColor: '#6C63FF',
+    padding: 18,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#6C63FF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  payButtonText: { 
+    color: '#fff', 
+    fontSize: 18, 
+    fontWeight: 'bold' 
+  },
+  loadingText: { 
+    marginTop: 16, 
+    fontSize: 16, 
+    color: '#666' 
+  },
+  text: { 
+    fontSize: 16, 
+    textAlign: 'center', 
+    color: '#333', 
+    marginTop: 16,
+    lineHeight: 24
+  },
+  successTitle: { 
+    fontSize: 28, 
+    fontWeight: 'bold', 
+    color: '#28A745',
+    textAlign: 'center'
+  },
+  errorTitle: { 
+    fontSize: 24, 
+    fontWeight: 'bold', 
+    color: '#FF6347',
+    textAlign: 'center'
+  },
+  errorText: { 
+    fontSize: 16, 
+    textAlign: 'center', 
+    color: '#666', 
+    marginTop: 12,
+    lineHeight: 22
+  },
+  returnButton: { 
+    backgroundColor: '#6C63FF',
+    marginTop: 24, 
+    paddingVertical: 14, 
+    paddingHorizontal: 32, 
+    borderRadius: 25 
+  },
+  returnButtonText: { 
+    color: '#fff', 
+    fontSize: 16, 
+    fontWeight: '600' 
+  },
+  cancelButton: {
+    backgroundColor: '#ccc',
+    marginTop: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 20
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontSize: 16
+  },
+  retryButton: {
+    backgroundColor: '#FF6347',
+    marginTop: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 20
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600'
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#fff'
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    paddingTop: 50 // Pour l'encoche
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333'
+  },
+  closeButton: {
+    fontSize: 24,
+    color: '#666',
+    padding: 4
+  },
+  webview: {
+    flex: 1
+  },
+  webviewLoading: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff'
+  }
+});
+
+export default SubscriptionConfirmation;
+
+
+## Points clés de cette implémentation :
+
+1. **ReturnUrl dynamique** : Utilise votre IP locale pour Expo Go en dev et un scheme custom pour production
+2. **WebView modale** : Interface propre avec header et bouton de fermeture
+3. **Gestion automatique** : Détecte le retour et vérifie le statut automatiquement
+4. **API pawaPay v2** : Utilise la nouvelle API avec `amountDetails` et `phoneNumber`
+5. **Polling intelligent** : Vérifie le statut jusqu'à obtenir un résultat final
+
+**Configuration requise** :
+- Remplacez `YOUR_PAWAPAY_API_TOKEN` par votre token
+- Remplacez `192.168.1.100` par votre IP locale
+- Installez `react-native-webview` et `uuid`
+
+**Sources:**
+[Payment Page](/v2/docs/payment_page)
+[Deposit via Payment Page](/v2/api-reference/payment-page/deposit-via-payment-page)
+[Check Deposit Status](/v2/api-reference/deposits/check-deposit-status)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+pawapay api eyJraWQiOiIxIiwiYWxnIjoiRVMyNTYifQ.eyJ0dCI6IkFBVCIsInN1YiI6IjE1NzciLCJtYXYiOiIxIiwiZXhwIjoyMDcyNDY1MDY5LCJpYXQiOjE3NTY5MzIyNjksInBtIjoiREFGLFBBRiIsImp0aSI6IjZiZjhkN2I2LTY1OWUtNGM4OS1iMzgzLTU5MDBmNDAxZDU2MSJ9.BdM7dupWW7ISE3DT8eQpqQ2WRuutAZU3sOq6R-o1pdYDfWYjh-xcI8Mvy76-bc3m1y27ja5FtqjLqahnjoJkLQ
+
+
+
+
+
+
+
+
+
+
+
+
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyB3tS_rNgOpCXsHGi8xbIlAxeVI_VSi1FM",
+  authDomain: "jumy-e9766.firebaseapp.com",
+  projectId: "jumy-e9766",
+  storageBucket: "jumy-e9766.firebasestorage.app",
+  messagingSenderId: "574480742282",
+  appId: "1:574480742282:web:ce03ebb36d8d04912afa73"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+
+
+
+
+
+
+netsh advfirewall firewall add rule name="Expo Metro In" dir=in action=allow protocol=TCP localport=19000-19006
+netsh advfirewall firewall add rule name="Expo Metro Out" dir=out action=allow protocol=TCP localport=19000-19006
