@@ -1,81 +1,95 @@
-import { Slot, router } from "expo-router";
+// app/_layout.tsx
+import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { ThemeProvider } from '@/context/ThemeContext';
+import { Slot } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  View,
+  Alert,
+  Platform,
+} from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 
-import { Linking } from 'react-native';
-import { View, Text, Image, StyleSheet, Animated } from "react-native";
-import { useState, useEffect, useRef } from "react";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { StatusBar } from "expo-status-bar";
-import { AuthProvider } from "@/context/AuthContext";
-import React from "react";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+const WORKER_URL = 'https://notif.israelntalu328.workers.dev'; // <--- ton Worker
 
-
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 export default function RootLayout() {
   const [loading, setLoading] = useState(true);
-  const fadeAnim = useRef(new Animated.Value(0)).current; // animation fade-in
+  const { authUser } = useAuth(); // ← hook perso
 
+  /* ----------  1.  Splash screen  ---------- */
   useEffect(() => {
-    // animation fade-in
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 750,
-      useNativeDriver: true,
-    }).start();
-
-    const timer = setTimeout(() => setLoading(false), 2000);
+    const timer = setTimeout(() => setLoading(false), 1500);
     return () => clearTimeout(timer);
   }, []);
 
-
+  /* ----------  2.  FCM + enregistrement  ---------- */
   useEffect(() => {
-    // Gérer les URLs d'entrée
-    const handleDeepLink = (event: { url: string }) => {
-      const url = new URL(event.url);
-      const depositId = url.searchParams.get('depositId');
-      const userId = url.searchParams.get('userId');
-      
-      // Si nous avons des paramètres de paiement, rediriger vers la page de subs
-      if (depositId && userId) {
-        router.replace(`/subs?depositId=${depositId}&userId=${userId}`);
-      }
-    };
+    (async () => {
+      if (!Device.isDevice) return;
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') return;
 
-    // Écouter les événements de deep linking
-    const subscription = Linking.addEventListener('url', handleDeepLink);
-    
-    // Vérifier si l'app a été ouverte via un deep link
-    Linking.getInitialURL().then(url => {
-      if (url) handleDeepLink({ url });
-    });
+      const token = (
+        await Notifications.getExpoPushTokenAsync({
+          projectId: Constants.expoConfig?.extra?.eas?.projectId,
+        })
+      ).data;
 
-    return () => {
-      subscription.remove();
-    };
-  }, []);
+      // On envoie le token au Worker (KV)
+      await fetch(`${WORKER_URL}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: authUser?.id ?? 'anon', token }),
+      });
 
+      // On écoute les notifs reçues **while app is foreground**
+      const sub = Notifications.addNotificationReceivedListener((notification) => {
+        const { title, body } = notification.request.content;
+        Alert.alert(title ?? 'Notification', body ?? '');
+      });
 
+      return () => sub.remove();
+    })();
+  }, [authUser?.id]);
 
+  /* ----------  3.  UI  ---------- */
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
-          <SafeAreaView style={{ flex: 1, backgroundColor: "#F8F9FA" }}>
-            <StatusBar style="dark" />
-            {loading ? (
-              <Animated.View style={[styles.loadingContainer, { opacity: fadeAnim }]}>
-                <Image
-                  source={require('@/assets/images/icon.jpg')} // ton logo
-                  style={styles.logo}
-                />
-                <Text style={styles.loadingText}>
-                  Bienvenue sur Jumy...
-                </Text>
-              </Animated.View>
-            ) : (
-              <Slot />
-            )}
-          </SafeAreaView>
+          <ThemeProvider>
+            <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FA' }}>
+              <StatusBar style="dark" />
+              {loading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#6C63FF" />
+                  <Text style={styles.loadingText}>
+                    Préparation de votre expérience...
+                  </Text>
+                </View>
+              ) : (
+                <Slot />
+              )}
+            </SafeAreaView>
+          </ThemeProvider>
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
@@ -85,19 +99,13 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#F8F9FA",
-  },
-  logo: {
-    width: 120,
-    height: 120,
-    marginBottom: 20,
-    resizeMode: "contain",
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FA',
   },
   loadingText: {
-    fontSize: 18,
-    color: "#6C63FF",
-    fontWeight: "600",
+    marginTop: 20,
+    fontSize: 16,
+    color: '#6C63FF',
   },
 });

@@ -1,7 +1,6 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { RefreshControl } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,51 +9,49 @@ import {
   FlatList,
   Image,
   Modal,
-  Platform,
-  SafeAreaView,
+  Platform, RefreshControl, SafeAreaView,
   ScrollView,
-  StyleSheet,
-  Text,
+  StyleSheet, Switch, Text,
   TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
 
 // --- IMPORTS POUR FIREBASE & FONCTIONNALITÉS AJOUTÉES ---
 import { db, firestore, storage } from '@/firebase/config';
-import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import * as Haptics from 'expo-haptics';
 import { createProduct } from '@/services/productService';
+import * as Haptics from 'expo-haptics';
+import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 
-import {
-  addDoc,
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  onSnapshot,
-  orderBy,
-  startAfter,
-  limit,
-  query,
-  serverTimestamp,
-  DocumentSnapshot,
-  where,
-  deleteDoc
-} from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
+import { useTheme } from '@/context/ThemeContext';
 import {
   AntDesign, Feather,
   Ionicons
 } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  DocumentSnapshot,
+  getDoc,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  startAfter,
+  where
+} from 'firebase/firestore';
 
 // --- DÉFINITIONS DES TYPES ET COMPOSANTS UTILITAIRES ---
 const onboardingSlides = [
   {
     id: '1',
-    title: 'Bienvenue sur Jimmy !',
+    title: 'Bienvenue !',
     description: 'Découvrez des produits uniques, connectez-vous avec les vendeurs locaux et simplifiez vos achats.',
     image: require('@/assets/images/icon.jpg'),
     backgroundColor: '#6C63FF',
@@ -284,6 +281,7 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({ source, style, ...props
 export default function HomeScreen() {
   const router = useRouter();
   const { authUser } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   // États pour la pagination et le chargement
   const [lastVisible, setLastVisible] = useState<DocumentSnapshot | null>(null);
@@ -338,8 +336,7 @@ const [showSuggestions, setShowSuggestions] = useState(false);
   const [loadingOrder, setLoadingOrder] = useState<string | null>(null);
   const cartScale = useRef(new Animated.Value(1)).current;
 
-  // États et références pour le tutoriel d'onboarding
-  const [showOnboarding, setShowOnboarding] = useState(false);
+  // États et références (onboarding déplacé dans _layout)
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const scrollX = useRef(new Animated.Value(0)).current;
   const productImagesScrollX = useRef(new Animated.Value(0)).current;
@@ -351,7 +348,7 @@ const [showSuggestions, setShowSuggestions] = useState(false);
   const [sellerProducts, setSellerProducts] = useState<Product[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
 
-  // Clé pour AsyncStorage
+  // Clé pour AsyncStorage (onboarding géré dans _layout)
   const CHECK_ONBOARDING_KEY = 'hasSeenOnboarding';
 
   // Effet pour les permissions d'accès aux médias
@@ -371,26 +368,7 @@ const [showSuggestions, setShowSuggestions] = useState(false);
     })();
   }, []);
 
-  // Fonctions pour le tutoriel d'onboarding
-  const checkFirstLaunch = async () => {
-    try {
-      const hasSeen = await AsyncStorage.getItem(CHECK_ONBOARDING_KEY);
-      if (hasSeen === null) {
-        setShowOnboarding(true);
-      }
-    } catch (error) {
-      console.error("Erreur lors de la vérification du tutoriel:", error);
-    }
-  };
-
-  const skipOnboarding = async () => {
-    try {
-      await AsyncStorage.setItem(CHECK_ONBOARDING_KEY, 'true');
-      setShowOnboarding(false);
-    } catch (error) {
-      console.error("Erreur lors de l'enregistrement du tutoriel:", error);
-    }
-  };
+  // Onboarding supprimé ici; logique déplacée dans _layout
 
   const handleOnboardingScroll = Animated.event(
     [{ nativeEvent: { contentOffset: { x: scrollX } } }],
@@ -416,9 +394,7 @@ const [showSuggestions, setShowSuggestions] = useState(false);
     }
   };
 
-  useEffect(() => {
-    checkFirstLaunch();
-  }, []);
+  useEffect(() => {}, []);
 
   // Fonctionnalité : Gestion des favoris (Wishlist)
   const loadFavorites = useCallback(async () => {
@@ -1080,50 +1056,7 @@ const [showSuggestions, setShowSuggestions] = useState(false);
   );
 
   return (
-    <>
-      {showOnboarding && (
-        <View style={styles.onboardingContainer}>
-          <FlatList
-            ref={flatListRef}
-            data={onboardingSlides}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => <OnboardingItem item={item} />}
-            onScroll={handleOnboardingScroll}
-            onViewableItemsChanged={handleOnboardingViewableItemsChanged}
-            viewabilityConfig={viewabilityConfig}
-          />
-          <View style={styles.onboardingPagination}>
-            {onboardingSlides.map((_, index) => {
-              const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
-              const dotWidth = scrollX.interpolate({
-                inputRange,
-                outputRange: [10, 25, 10],
-                extrapolate: 'clamp'
-              });
-              const dotOpacity = scrollX.interpolate({
-                inputRange,
-                outputRange: [0.5, 1, 0.5],
-                extrapolate: 'clamp'
-              });
-              return (
-                <Animated.View
-                  key={index.toString()}
-                  style={[styles.onboardingDot, { width: dotWidth, opacity: dotOpacity }]}
-                />
-              );
-            })}
-          </View>
-          <TouchableOpacity style={styles.onboardingBtn} onPress={goToNextSlide}>
-            <Text style={styles.onboardingBtnText}>{currentSlideIndex === onboardingSlides.length - 1 ? 'Démarrer' : 'Suivant'}</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {!showOnboarding && (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
           <ScrollView
             style={styles.contentContainer}
             showsVerticalScrollIndicator={false}
@@ -1132,15 +1065,20 @@ const [showSuggestions, setShowSuggestions] = useState(false);
             }
           >
             {/* Header et SearchBar */}
-            <View style={styles.header}>
+            <View style={[styles.header, { backgroundColor: theme.colors.card, borderBottomColor: theme.colors.border }]}>
               <View>
-                <Text style={styles.greeting}>Bonjour, {authUser?.name || 'Visiteur'} !</Text>
-                <Text style={styles.subGreeting}>Que cherchez-vous aujourd'hui ?</Text>
+                <Text style={[styles.greeting, { color: theme.colors.textPrimary }]}>Bonjour, {authUser?.name || 'Visiteur'} !</Text>
+                <Text style={[styles.subGreeting, { color: theme.colors.textSecondary }]}>Que cherchez-vous aujourd'hui ?</Text>
               </View>
               <View style={styles.headerIcons}>
+                <View style={{ alignItems: 'center', marginRight: 12 }}>
+                  <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{theme.mode === 'dark' ? 'Dark' : 'Light'}</Text>
+                  <Switch value={theme.mode === 'dark'} onValueChange={toggleTheme} trackColor={{ false: '#bbb', true: theme.colors.primary }} thumbColor={'#fff'} />
+                </View>
+                
                 <TouchableOpacity style={styles.iconButton} onPress={() => setCartModalVisible(true)}>
                   <Animated.View style={{ transform: [{ scale: cartScale }] }}>
-                    <Feather name="shopping-cart" size={24} color="#333" />
+                    <Feather name="shopping-cart" size={24} color={theme.colors.textPrimary} />
                   </Animated.View>
                   {cart.length > 0 && <View style={styles.cartBadge} />}
                 </TouchableOpacity>
@@ -1149,6 +1087,7 @@ const [showSuggestions, setShowSuggestions] = useState(false);
 
             {/* Barre de Recherche */}
             <View style={styles.searchContainer}>
+              
               <Feather name="search" size={20} color="#666" style={styles.searchIcon} />
               <TextInput
   style={styles.searchInput}
@@ -1189,7 +1128,7 @@ const [showSuggestions, setShowSuggestions] = useState(false);
             </View>
 
             {/* Catégories de Produits */}
-            <Text style={styles.sectionTitle}>Catégories</Text>
+            <Text style={[styles.sectionTitle, { color: theme.colors.textPrimary }]}>Catégories</Text>
             <View style={styles.categoryContainer}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
                 {categories.map((cat, index) => (
@@ -1209,6 +1148,7 @@ const [showSuggestions, setShowSuggestions] = useState(false);
                 ))}
               </ScrollView>
             </View>
+            
 
             {/* Bouton "Publier un produit" */}
             {isVerifiedSeller && (
@@ -1227,6 +1167,18 @@ const [showSuggestions, setShowSuggestions] = useState(false);
                 <Feather name="list" size={20} color="#6C63FF" />
                 <Text style={styles.dashboardButtonText}>Mes Commandes</Text>
               </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.dashboardButton}
+                onPress={() => {
+               
+                  router.push(`/mes-commandes`);
+                }}
+              >
+                
+                <Feather name="list" size={20} color="#6C63FF" />
+                <Text style={styles.dashboardButtonText}>Mes achats</Text>
+              </TouchableOpacity>
               {isVerifiedSeller && (
                 <TouchableOpacity style={styles.dashboardButton} onPress={() => setSellerDashboardModalVisible(true)}>
                   <Feather name="bar-chart-2" size={20} color="#6C63FF" />
@@ -1239,7 +1191,7 @@ const [showSuggestions, setShowSuggestions] = useState(false);
    
 
             {/* Grille de Produits */}
-            <Text style={styles.sectionTitle}>Produits Récents</Text>
+            <Text style={[styles.sectionTitle, { color: theme.colors.textPrimary }]}>Produits Récents</Text>
             {initialLoading ? (
               <View style={styles.loadingContainer}>
                 {[...Array(6)].map((_, i) => <SkeletonCard key={i} />)}
@@ -1699,8 +1651,6 @@ if (!statusInfo) {
           </Modal>
 
         </SafeAreaView>
-      )}
-    </>
   );
 }
 
@@ -2697,3 +2647,7 @@ alignItems: 'center',},
 
 
 )
+
+function skipOnboarding() {
+  throw new Error('Function not implemented.');
+}

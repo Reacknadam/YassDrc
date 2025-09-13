@@ -2,15 +2,13 @@
 import { useAuth } from '@/context/AuthContext';
 import { db } from '@/firebase/config';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import * as Linking from 'expo-linking';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   doc,
   getDoc,
   onSnapshot,
-  serverTimestamp,
-  updateDoc,
+  updateDoc
 } from 'firebase/firestore';
 import React, {
   useEffect,
@@ -34,6 +32,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import * as Crypto from 'expo-crypto';
 import { WebView } from 'react-native-webview';
 
 // ------------------------------------------------------------------
@@ -243,12 +243,15 @@ const PayScreen = () => {
   // ----------------------------------------------------------------
   // États
   // ----------------------------------------------------------------
+
+  // NOUVEAUX ÉTATS pour la page web
+  // ← remets-le
+
   const [sellerInfo, setSellerInfo] = useState<SellerInfo | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [phoneNumber, setPhoneNumber] = useState('243');
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [isDelivery, setIsDelivery] = useState(true);
+  
   const [deliveryDetails, setDeliveryDetails] = useState<{
     location: string;
     address: string;
@@ -264,8 +267,9 @@ const PayScreen = () => {
 
   // NOUVEAUX ÉTATS pour la page web
   const [htmlContent, setHtmlContent] = useState('');
-  const [depositId, setDepositId] = useState('');
+  const [depositId, setDepositId] = useState<string | null>(null);
   const [webModalVisible, setWebModalVisible] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ----------------------------------------------------------------
   // Calculs
@@ -397,110 +401,93 @@ const PayScreen = () => {
   // ----------------------------------------------------------------
   // NOUVELLE LOGIQUE PAIEMENT (via page web + polling)
   // ----------------------------------------------------------------
-  const handlePayment = async () => {
-    // 1. Validation
-    if (isDelivery) {
-      if (
-        !deliveryDetails.location ||
-        !deliveryDetails.address ||
-        !deliveryDetails.coordinates
-      )
-        return Alert.alert(
-          'Erreur',
-          'Veuillez renseigner tous les détails de livraison.'
-        );
-    } else {
-      if (!selectedPickupHouse)
-        return Alert.alert('Erreur', 'Veuillez choisir un point de retrait.');
+  // ----------------------------------------------------------------
+// NOUVELLE LOGIQUE PAIEMENT (via page web + polling)
+// ----------------------------------------------------------------
+
+
+
+const orderRef = doc(db, 'orders', orderId);
+/* ---------- interception retour ---------- */
+const handleNavChange = (nav: any) => {
+  const { url } = nav;
+  if (url.includes('yass-webhook.israelntalu328.workers.dev/payment-return')) {
+    const id = new URL(url).searchParams.get('depositId');
+    if (id) {
+      setDepositId(id);       
+      setWebModalVisible(false);
+      pollStatus(id);
     }
-    if (!selectedProvider)
-      return Alert.alert('Erreur', 'Veuillez choisir un opérateur.');
-    if (!phoneNumber.startsWith('243') || phoneNumber.length !== 12)
-      return Alert.alert(
-        'Erreur',
-        'Numéro doit commencer par 243 (12 chiffres).'
-      );
-    if (!orderId || !authUser?.id || !sellerId)
-      return Alert.alert('Erreur', 'Informations de commande manquantes.');
+  }
+};
 
-    setPaymentStatus('INITIATING');
+const pollStatus = (id: string) => {
+  let tries = 0;
+  const max = 20;
+  if (pollRef.current) clearInterval(pollRef.current);
 
+  pollRef.current = setInterval(async () => {
+    tries++;
     try {
-      // 2. Firestore : intention de paiement
-      const orderRef = doc(db, 'orders', orderId);
-      await updateDoc(orderRef, {
-        deliveryType: isDelivery ? 'delivery' : 'pickup',
-        deliveryInfo: isDelivery ? deliveryDetails : { location: selectedPickupHouse },
-        customerMessage,
-        paymentDetails: { phoneNumber, provider: selectedProvider },
-        finalAmount: finalTotal,
-        depositAmount,
-        depositStatus: isDelivery ? 'PENDING' : 'NOT_REQUIRED',
-        status: isDelivery ? 'pending_payment' : 'confirmed',
-        updatedAt: serverTimestamp(),
-      });
+      const r = await fetch(`https://yass-webhook.israelntalu328.workers.dev/check-payment/${id}`);
+      if (!r.ok) throw new Error('net');
+      const { status } = await r.json();
+      const st = String(status).toUpperCase();
 
-      if (!isDelivery) {
-        // Retrait → pas de paiement en ligne
-        setPaymentStatus('SUCCESS');
-        Alert.alert(
-          'Commande confirmée',
-          'Vous paierez sur place.',
-          [{ text: 'OK', onPress: () => router.replace(`/order-confirmation/${orderId}`) }]
-        );
+      if (['SUCCESS', 'SUCCESSFUL'].includes(st)) {
+        clearInterval(pollRef.current!); pollRef.current = null;
+        updateDoc(doc(db, 'orders', orderId), { depositStatus: 'PAID', status: 'confirmed' });
+        Alert.alert('✅ Paiement confirmé', 'Votre commande est confirmée !');
+        router.replace(`/order-confirmation/${orderId}`);
         return;
       }
-
-      // 3. Demande page de paiement
-      const id = `${authUser.id}_${Date.now()}`;
-      setDepositId(id);
-      const res = await fetch(
-        `$https://yass-webhook.israelntalu328.workers.dev/payment-page?depositId=${id}&amount=${depositAmount.toFixed(0)}&currency=CDF`
-      );
-      if (!res.ok) throw new Error(`Worker ${res.status}`);
-      const html = await res.text();
-      setHtmlContent(html);
-      setWebModalVisible(true);
-
-      // 4. Polling
-      let attempts = 0;
-      const max = 20;
-      const poll = setInterval(async () => {
-        attempts++;
-        const raw = await fetch(`https://yass-webhook.israelntalu328.workers.dev/check-payment/${id}`)
-          .then((r) => r.json())
-          .catch(() => ({ status: 'NETWORK_ERROR' }));
-        if (raw.status === 'SUCCESS') {
-          clearInterval(poll);
-          await updateDoc(orderRef, {
-            depositStatus: 'PAID',
-            status: 'confirmed',
-            updatedAt: serverTimestamp(),
-          });
-          Alert.alert(
-            'Paiement réussi',
-            'Votre commande est confirmée !',
-            [{ text: 'OK', onPress: () => router.replace(`/order-confirmation/${orderId}`) }]
-          );
-          setWebModalVisible(false);
-          return;
-        }
-        if (attempts >= max) {
-          clearInterval(poll);
-          Alert.alert('⏱ Délai dépassé – paiement non confirmé');
-          setWebModalVisible(false);
-        }
-      }, 3000);
-    } catch (e: any) {
-      console.error(e);
+      if (['FAILED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'ERROR'].includes(st)) {
+        clearInterval(pollRef.current!); pollRef.current = null;
+        updateDoc(doc(db, 'orders', orderId), { depositStatus: 'FAILED', status: 'payment_failed' });
+        Alert.alert('Paiement échoué', 'Le paiement a été refusé/annulé.');
+        setPaymentStatus('FAILED');
+        return;
+      }
+    } catch {/* ignore */}
+    if (tries >= max) {
+      clearInterval(pollRef.current!); pollRef.current = null;
+      updateDoc(doc(db, 'orders', orderId), { depositStatus: 'FAILED', status: 'payment_failed' });
+      Alert.alert('⏱ Délai dépassé', 'Paiement non confirmé.');
       setPaymentStatus('FAILED');
-      Alert.alert('Erreur de paiement', e.message || 'Erreur inconnue.');
-      await updateDoc(doc(db, 'orders', orderId), {
-        depositStatus: 'FAILED',
-        status: 'payment_failed',
-      });
     }
-  };
+  }, 3000);
+};
+
+
+
+
+
+
+const handlePayment = () => {
+  if (!isDelivery) {
+    Alert.alert('Commande confirmée', 'Vous paierez sur place.', [
+      { text: 'OK', onPress: () => router.replace(`/order-confirmation/${orderId}`) },
+    ]);
+    return;
+  }
+  const id = Crypto.randomUUID();
+  setDepositId(id);            // ← set ici
+  setWebModalVisible(true);
+};
+
+
+
+
+
+
+
+  // Nettoyage polling si l'écran se démonte
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
+    };
+  }, []);
 
   // ----------------------------------------------------------------
   // UI
@@ -635,39 +622,9 @@ const PayScreen = () => {
             </View>
           )}
 
-          {/* Paiement */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>3. Paiement</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Numéro (243...)"
-              keyboardType="phone-pad"
-              value={phoneNumber}
-              onChangeText={setPhoneNumber}
-              maxLength={12}
-            />
-            <View style={styles.providerContainer}>
-              {['VODACOM_MPESA_COD', 'ORANGE_COD', 'AIRTEL_COD'].map((p) => (
-                <TouchableOpacity
-                  key={p}
-                  style={[
-                    styles.providerButton,
-                    selectedProvider === p && styles.selectedProviderButton,
-                  ]}
-                  onPress={() => setSelectedProvider(p)}
-                >
-                  <Text
-                    style={[
-                      styles.providerText,
-                      selectedProvider === p && styles.selectedProviderText,
-                    ]}
-                  >
-                    {p.split('_')[0]}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
+    
+            
+      
 
           {/* Récap */}
           <View style={styles.section}>
@@ -742,30 +699,28 @@ const PayScreen = () => {
         isGettingLocation={isGettingLocation}
       />
 
-      <Modal
-        visible={webModalVisible}
-        animationType="slide"
-        onRequestClose={() => setWebModalVisible(false)}
-      >
-        {htmlContent ? (
-          <WebView
-            source={{ html: htmlContent }}
-            style={{ flex: 1 }}
-            originWhitelist={['*']}
-            startInLoadingState
-            renderLoading={() => (
-              <View style={styles.centeredView}>
-                <ActivityIndicator size="large" color="#6C63FF" />
-                <Text style={styles.loadingText}>Vérification du paiement…</Text>
-              </View>
-            )}
-          />
-        ) : (
-          <View style={styles.centeredView}>
-            <ActivityIndicator size="large" color="#6C63FF" />
-          </View>
-        )}
-      </Modal>
+<Modal visible={webModalVisible} animationType="slide" onRequestClose={() => setWebModalVisible(false)}>
+  <View style={{ flex: 1 }}>
+    <TouchableOpacity style={{ padding: 16 }} onPress={() => setWebModalVisible(false)}>
+      <Text style={{ fontSize: 18 }}>✕ Fermer</Text>
+    </TouchableOpacity>
+    <WebView
+      source={{ uri: `${PAYMENT_WORKER_URL}/payment-page?depositId=${depositId}&amount=${depositAmount.toFixed(0)}&currency=CDF` }}
+      onNavigationStateChange={handleNavChange}
+      startInLoadingState
+      javaScriptEnabled={true}
+      domStorageEnabled={true}
+      originWhitelist={['*']}
+      renderLoading={() => (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#6C63FF" />
+          <Text>Redirection vers PawaPay…</Text>
+        </View>
+      )}
+    />
+  </View>
+</Modal>
+
     </SafeAreaView>
   );
 };
@@ -960,4 +915,4 @@ const styles = StyleSheet.create({
   loadingText: { marginTop: 15, fontSize: 16, color: '#666' },
 });
 
-export default PayScreen;         
+export default PayScreen;       

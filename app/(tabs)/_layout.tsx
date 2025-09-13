@@ -1,21 +1,18 @@
-// app/(tabs)/_layout.tsx
-import React, { useState, useRef, useEffect } from 'react';
+import { useAuth } from '@/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Tabs, useRouter } from 'expo-router';
-import { 
-  StyleSheet, 
-  View, 
-  TouchableOpacity, 
-  Dimensions,
+import React, { useRef, useState } from 'react';
+import {
   Animated,
-  Text
+  Dimensions,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import * as Haptics from 'expo-haptics';
-import { useAuth } from '@/context/AuthContext';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '@/firebase/config';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 type ValidTab = 'home' | 'help' | 'conv' | 'profile' | 'news' | 'check';
@@ -23,53 +20,52 @@ type ValidTab = 'home' | 'help' | 'conv' | 'profile' | 'news' | 'check';
 const { width } = Dimensions.get('window');
 const TAB_HEIGHT = 70;
 
+interface NavButtonConfig {
+  tab: ValidTab;
+  icon: IconName;
+  activeIcon: IconName;
+  label: string;
+}
+
 export default function TabsLayout() {
   const router = useRouter();
-  const { authUser } = useAuth();
+  const { isSeller } = useAuth(); // ✅ Remplace tout le useState + onSnapshot
   const [activeTab, setActiveTab] = useState<ValidTab>('home');
-  const [isSeller, setIsSeller] = useState(false);
   const indicatorPosition = useRef(new Animated.Value(0)).current;
 
-  // Écoute en temps réel du statut vendeur
-  useEffect(() => {
-    if (!authUser?.id) return;
-    const userRef = doc(db, 'users', authUser.id);
-    const unsubscribe = onSnapshot(userRef, (doc) => {
-      if (doc.exists()) {
-        const userData = doc.data();
-        setIsSeller(userData.isSellerVerified || false);
-      }
-    });
-    return () => unsubscribe();
-  }, [authUser?.id]);
+  
+  const navButtons: NavButtonConfig[] = [
+    { tab: 'home', icon: 'home-outline', activeIcon: 'home', label: 'Accueil' },
+    { tab: 'help', icon: 'help-circle-outline', activeIcon: 'help-circle', label: 'Aide' },
+    ...(isSeller ? [{ tab: 'check' as ValidTab, icon: 'checkmark-circle-outline' as IconName, activeIcon: 'checkmark-circle' as IconName, label: 'Livraison' }] : []),
+    { tab: 'conv' as ValidTab, icon: 'chatbox-outline' as IconName, activeIcon: 'chatbox' as IconName, label: 'Chat' },
+    { tab: 'profile' as ValidTab, icon: 'person-outline' as IconName, activeIcon: 'person' as IconName, label: 'Profil' }
+  ];
 
-  const tabCount = isSeller ? 5 : 4;
+  const tabCount = navButtons.length;
   const TAB_WIDTH = width / tabCount;
+
+  React.useEffect(() => {
+    const currentIndex = navButtons.findIndex(btn => btn.tab === activeTab);
+    if (currentIndex !== -1) {
+      Animated.spring(indicatorPosition, {
+        toValue: currentIndex * TAB_WIDTH,
+        damping: 15,
+        stiffness: 100,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [navButtons, activeTab, TAB_WIDTH]);
 
   const handleTabPress = (tab: ValidTab, index: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setActiveTab(tab);
     router.replace(`/(tabs)/${tab}` as any);
-    
-    Animated.spring(indicatorPosition, {
-      toValue: index * TAB_WIDTH,
-      damping: 15,
-      stiffness: 100,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const getTabIndex = (tab: ValidTab): number => {
-    const baseTabs = ['home', 'help', 'conv', 'profile'];
-    const sellerTabs = ['home', 'help', 'check', 'conv', 'profile'];
-    const tabsArray = isSeller ? sellerTabs : baseTabs;
-    return tabsArray.indexOf(tab);
   };
 
   return (
     <SafeAreaProvider style={{ flex: 1 }}>
       <View style={{ flex: 1 }}>
-        {/* Composant Tabs */}
         <Tabs
           screenOptions={{
             tabBarShowLabel: false,
@@ -77,15 +73,11 @@ export default function TabsLayout() {
             headerShown: false,
           }}
         >
-          <Tabs.Screen name="home" />
-          <Tabs.Screen name="help" />
-          <Tabs.Screen name="conv" />
-          <Tabs.Screen name="profile" />
-          <Tabs.Screen name="news" />
-          <Tabs.Screen name="check" />
+          {navButtons.map(btn => (
+            <Tabs.Screen key={btn.tab} name={btn.tab} />
+          ))}
         </Tabs>
 
-        {/* Barre de navigation en bas */}
         <View style={styles.navWrapper}>
           <LinearGradient
             colors={['rgba(255,255,255,0.95)', 'rgba(245,245,245,0.97)']}
@@ -93,43 +85,24 @@ export default function TabsLayout() {
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
           >
-            <Animated.View 
+            <Animated.View
               style={[
-                styles.indicator, 
+                styles.indicator,
                 { transform: [{ translateX: indicatorPosition }], width: TAB_WIDTH - 30 }
-              ]} 
+              ]}
             />
 
             <View style={styles.tabsContainer}>
-              <NavButton 
-                icon="home-outline" 
-                activeIcon="home"
-                label="Accueil"
-                active={activeTab === 'home'}
-                onPress={() => handleTabPress('home', getTabIndex('home'))}
-              />
-              
-            
-              
-              {isSeller && (
-                <NavButton 
-                  icon="checkmark-circle-outline" 
-                  activeIcon="checkmark-circle"
-                  label="Livraison"
-                  active={activeTab === 'check'}
-                  onPress={() => handleTabPress('check', getTabIndex('check'))}
+              {navButtons.map((btn, index) => (
+                <NavButton
+                  key={btn.tab}
+                  icon={btn.icon}
+                  activeIcon={btn.activeIcon}
+                  label={btn.label}
+                  active={activeTab === btn.tab}
+                  onPress={() => handleTabPress(btn.tab, index)}
                 />
-              )}
-       
-
-              
-              <NavButton 
-                icon="person-outline" 
-                activeIcon="person"
-                label="Profil"
-                active={activeTab === 'profile'}
-                onPress={() => handleTabPress('profile', getTabIndex('profile'))}
-              />
+              ))}
             </View>
           </LinearGradient>
         </View>
@@ -166,13 +139,12 @@ const NavButton = ({ icon, activeIcon, label, active, onPress }: NavButtonProps)
 
 const styles = StyleSheet.create({
   navWrapper: {
-    // Remplacement de absolute par normal flow
     width: '100%',
   },
   navBar: {
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingVertical: 12,
+    paddingVertical: 7,
     borderTopWidth: 1,
     borderColor: 'rgba(0,0,0,0.05)',
   },
@@ -181,6 +153,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 10,
+    borderRadius: 20,
   },
   tabButton: {
     alignItems: 'center',

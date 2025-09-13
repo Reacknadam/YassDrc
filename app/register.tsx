@@ -1,22 +1,22 @@
+import { useAuth } from '@/context/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View,
+  ActivityIndicator,
+  Animated,
+  Dimensions,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-  ScrollView,
-  Platform,
-  SafeAreaView,
-  KeyboardAvoidingView,
-  Dimensions,
-  Animated,
+  View,
 } from 'react-native';
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '@/context/AuthContext';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
 
@@ -28,6 +28,14 @@ export default function Register() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [success, setSuccess] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const isEmailValid = useMemo(() => /\S+@\S+\.\S+/.test(email.trim()), [email]);
+  const isNameValid = useMemo(() => username.trim().length >= 2, [username]);
+  const isPasswordValid = useMemo(() => password.trim().length >= 6, [password]);
+  const isConfirmValid = useMemo(() => confirmPassword === password && confirmPassword.length > 0, [confirmPassword, password]);
+  const formValid = isEmailValid && isNameValid && isPasswordValid && isConfirmValid;
 
   const buttonScale = new Animated.Value(1);
   const cardTranslateY = new Animated.Value(0);
@@ -48,12 +56,8 @@ export default function Register() {
 
   const handleRegister = async () => {
     setError(null);
-    if (!username || !email || !password || !confirmPassword) {
-      setError("Veuillez remplir tous les champs.");
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError("Les mots de passe ne correspondent pas.");
+    if (!formValid) {
+      setError("Veuillez renseigner des informations valides (nom ≥ 2, email valide, mot de passe ≥ 6, confirmation identique).");
       return;
     }
 
@@ -142,6 +146,9 @@ export default function Register() {
                   onChangeText={setUsername}
                 />
               </View>
+              {!isNameValid && username.length > 0 && (
+                <Text style={styles.helperError}>Nom trop court.</Text>
+              )}
 
               <View style={styles.inputContainer}>
                 <Ionicons name="mail-outline" size={20} color="#8E8E93" style={styles.inputIcon} />
@@ -155,6 +162,9 @@ export default function Register() {
                   onChangeText={setEmail}
                 />
               </View>
+              {!isEmailValid && email.length > 0 && (
+                <Text style={styles.helperError}>Format d'email invalide.</Text>
+              )}
 
               <View style={styles.inputContainer}>
                 <Ionicons name="lock-closed-outline" size={20} color="#8E8E93" style={styles.inputIcon} />
@@ -162,11 +172,17 @@ export default function Register() {
                   style={styles.input}
                   placeholder="Mot de passe"
                   placeholderTextColor="#A8A8B3"
-                  secureTextEntry
+                  secureTextEntry={!showPassword}
                   value={password}
                   onChangeText={setPassword}
                 />
+                <TouchableOpacity onPress={() => setShowPassword(p => !p)}>
+                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#8E8E93" />
+                </TouchableOpacity>
               </View>
+              {!isPasswordValid && password.length > 0 && (
+                <Text style={styles.helperError}>Au moins 6 caractères.</Text>
+              )}
 
               <View style={styles.inputContainer}>
                 <Ionicons name="lock-closed-outline" size={20} color="#8E8E93" style={styles.inputIcon} />
@@ -174,18 +190,24 @@ export default function Register() {
                   style={styles.input}
                   placeholder="Confirmer le mot de passe"
                   placeholderTextColor="#A8A8B3"
-                  secureTextEntry
+                  secureTextEntry={!showConfirm}
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
                 />
+                <TouchableOpacity onPress={() => setShowConfirm(p => !p)}>
+                  <Ionicons name={showConfirm ? 'eye-off-outline' : 'eye-outline'} size={20} color="#8E8E93" />
+                </TouchableOpacity>
               </View>
+              {!isConfirmValid && confirmPassword.length > 0 && (
+                <Text style={styles.helperError}>La confirmation doit correspondre.</Text>
+              )}
 
               <TouchableOpacity
                 style={[styles.registerButton, { transform: [{ scale: buttonScale }] }]}
                 onPress={handleRegister}
                 onPressIn={handlePressIn}
                 onPressOut={handlePressOut}
-                disabled={authLoading}
+                disabled={authLoading || !formValid}
               >
                 {authLoading ? (
                   <ActivityIndicator color="#fff" />
@@ -255,6 +277,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 20,
     elevation: 15,
+  },
+  helperError: {
+    width: '100%',
+    color: '#ef4444',
+    marginTop: -8,
+    marginBottom: 10,
+    fontSize: 12,
   },
   title: {
     fontSize: 32,

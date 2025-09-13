@@ -1,64 +1,79 @@
 // app/(tabs)/help.tsx
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Linking,
-  SafeAreaView,
-  Dimensions,
-} from 'react-native';
+import { db } from '@/firebase/config';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { collection, getDocs, orderBy, query } from 'firebase/firestore';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Dimensions,
+  Linking,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 const { width } = Dimensions.get('window');
 
-interface FAQItem {
-  question: string;
-  answer: string;
-}
+type FAQItem = { id: string; question: string; answer: string; category?: string; updatedAt?: any };
 
 const HelpScreen = () => {
   const router = useRouter();
-  const [expandedItems, setExpandedItems] = useState<Record<number, boolean>>({});
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
+  const [faqs, setFaqs] = useState<FAQItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [activeCategory, setActiveCategory] = useState<string>('Toutes');
   
 
-  const toggleItem = (index: number) => {
+  const toggleItem = (id: string) => {
     setExpandedItems(prev => ({
       ...prev,
-      [index]: !prev[index]
+      [id]: !prev[id]
     }));
   };
 
-  const faqData: FAQItem[] = [
-    {
-      question: "Comment créer un compte vendeur?",
-      answer: "Pour devenir vendeur, rendez-vous dans votre profil et cliquez sur 'Devenir vendeur'. Remplissez le formulaire avec vos informations professionnelles et pièces d'identité. Notre équipe vérifiera votre demande sous 24-48h."
-    },
-    {
-      question: "Comment passer une commande?",
-      answer: "Parcourez les produits, ajoutez ceux qui vous intéressent au panier, puis procédez au paiement. Choisissez entre livraison ou retrait en point de collecte."
-    },
-    {
-      question: "Quels sont les modes de paiement acceptés?",
-      answer: "Nous acceptons les paiements mobile money (M-Pesa, Airtel Money, Orange Money) ainsi que le paiement en espèces lors du retrait en point de collecte."
-    },
-    {
-      question: "Comment suivre ma commande?",
-      answer: "Une fois votre commande confirmée, vous recevrez des notifications sur son statut. Vous pouvez également consulter l'historique de vos commandes dans votre profil."
-    },
-    {
-      question: "Que faire en cas de problème avec une commande?",
-      answer: "Contactez-nous immédiatement via le chat ou par téléphone. Notre service client est disponible du lundi au samedi de 8h à 18h."
-    },
-    {
-      question: "Quelle est la politique de retour?",
-      answer: "Les retours sont acceptés sous 7 jours pour les articles non ouverts et en parfait état. Les produits alimentaires et périssables ne peuvent être retournés."
-    }
-  ];
+  useEffect(() => {
+    const loadFaqs = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const constraints: any[] = [];
+        // Optionnel: filtrer côté serveur par catégorie si nécessaire
+        // if (activeCategory !== 'Toutes') constraints.push(where('category', '==', activeCategory));
+        constraints.push(orderBy('updatedAt', 'desc'));
+        const q = query(collection(db, 'faqs'), ...constraints);
+        const snap = await getDocs(q);
+        const items: FAQItem[] = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+        setFaqs(items);
+      } catch (e: any) {
+        setError(e.message || 'Erreur de chargement');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadFaqs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    faqs.forEach(f => f.category && set.add(f.category));
+    return ['Toutes', ...Array.from(set)];
+  }, [faqs]);
+
+  const filteredFaqs = useMemo(() => {
+    const base = activeCategory === 'Toutes' ? faqs : faqs.filter(f => f.category === activeCategory);
+    if (!search.trim()) return base;
+    const s = search.trim().toLowerCase();
+    return base.filter(f => f.question.toLowerCase().includes(s) || f.answer.toLowerCase().includes(s));
+  }, [faqs, search, activeCategory]);
 
   const contactMethods = [
     {
@@ -69,21 +84,21 @@ const HelpScreen = () => {
     },
     {
       icon: 'chatbubbles-outline',
-      title: 'Chat en direct',
+      title: 'Chat en direct avec le bot',
       description: 'Réponse immédiate',
-      action: () => router.push('/conv')
+      action: () => router.push('/assistant-chat')
     },
     {
       icon: 'mail-outline',
       title: 'Envoyer un email',
-      description: 'Réponse sous 24h',
-      action: () => Linking.openURL('mailto:contact.yassd@gmail.com')
+      description: 'Réponse entre 0-24h',
+      action: () => Linking.openURL('mailto:contact.yassdrc@gmail.com')
     },
     {
-      icon: 'location-outline',
-      title: 'Points de service',
-      description: 'Trouver une agence',
-      action: () => router.push('/')
+      icon: 'logo-whatsapp',
+      title: 'Contacter par WhatsApp',
+      description: 'Service client direct',
+      action: () => Linking.openURL('https://wa.me/243983627022')
     }
   ];
 
@@ -100,6 +115,30 @@ const HelpScreen = () => {
           <Text style={styles.headerTitle}>Centre d'aide</Text>
           <Text style={styles.headerSubtitle}>Nous sommes là pour vous aider</Text>
         </LinearGradient>
+
+        {/* Recherche et catégories */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Rechercher</Text>
+          <View style={styles.searchRow}>
+            <Ionicons name="search" size={18} color="#666" />
+            <TextInput
+              placeholder="Mot-clé (paiement, livraison...)"
+              placeholderTextColor="#999"
+              value={search}
+              onChangeText={setSearch}
+              style={styles.searchInput}
+            />
+          </View>
+          {categories.length > 1 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
+              {categories.map(cat => (
+                <TouchableOpacity key={cat} onPress={() => setActiveCategory(cat)} style={[styles.chip, activeCategory === cat && styles.chipActive]}>
+                  <Text style={[styles.chipText, activeCategory === cat && styles.chipTextActive]}>{cat}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
 
         {/* Méthodes de contact */}
         <View style={styles.section}>
@@ -124,28 +163,38 @@ const HelpScreen = () => {
         {/* FAQ */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Questions fréquentes</Text>
-          <View style={styles.faqContainer}>
-            {faqData.map((item, index) => (
-              <View key={index} style={styles.faqItem}>
-                <TouchableOpacity
-                  style={styles.faqQuestion}
-                  onPress={() => toggleItem(index)}
-                >
-                  <Text style={styles.faqQuestionText}>{item.question}</Text>
-                  <Ionicons
-                    name={expandedItems[index] ? 'chevron-up' : 'chevron-down'}
-                    size={20}
-                    color="#666"
-                  />
-                </TouchableOpacity>
-                {expandedItems[index] && (
-                  <View style={styles.faqAnswer}>
-                    <Text style={styles.faqAnswerText}>{item.answer}</Text>
+          {loading ? (
+            <ActivityIndicator style={{ marginTop: 10 }} color="#6C63FF" />
+          ) : error ? (
+            <Text style={{ color: '#e74c3c' }}>{error}</Text>
+          ) : (
+            <View style={styles.faqContainer}>
+              {filteredFaqs.length === 0 ? (
+                <Text style={{ color: '#666' }}>Aucun résultat.</Text>
+              ) : (
+                filteredFaqs.map((item) => (
+                  <View key={item.id} style={styles.faqItem}>
+                    <TouchableOpacity
+                      style={styles.faqQuestion}
+                      onPress={() => toggleItem(item.id)}
+                    >
+                      <Text style={styles.faqQuestionText}>{item.question}</Text>
+                      <Ionicons
+                        name={expandedItems[item.id] ? 'chevron-up' : 'chevron-down'}
+                        size={20}
+                        color="#666"
+                      />
+                    </TouchableOpacity>
+                    {expandedItems[item.id] && (
+                      <View style={styles.faqAnswer}>
+                        <Text style={styles.faqAnswerText}>{item.answer}</Text>
+                      </View>
+                    )}
                   </View>
-                )}
-              </View>
-            ))}
-          </View>
+                ))
+              )}
+            </View>
+          )}
         </View>
 
         {/* Informations supplémentaires */}
@@ -184,12 +233,45 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f7f7f7',
   },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  searchInput: {
+    flex: 1,
+    height: 40,
+    color: '#333',
+  },
   header: {
     padding: 20,
     paddingTop: 40,
     paddingBottom: 30,
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
+  },
+  chip: {
+    backgroundColor: '#eee',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  chipActive: {
+    backgroundColor: '#6C63FF',
+  },
+  chipText: {
+    color: '#333',
+    fontWeight: '600',
+  },
+  chipTextActive: {
+    color: '#fff',
   },
   headerTitle: {
     fontSize: 28,

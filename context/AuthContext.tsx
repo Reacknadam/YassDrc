@@ -1,15 +1,16 @@
 // context/AuthContext.tsx
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '@/firebase/config';
-import {
-  doc,
-  getDoc,
-  setDoc,
-  deleteDoc,
-} from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import { useRouter } from 'expo-router';
+import {
+  deleteDoc,
+  doc,
+  getDoc,
+  onSnapshot,
+  setDoc,
+} from 'firebase/firestore';
+import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 
 // =================================================================================
 // INTERFACES & TYPES
@@ -40,6 +41,7 @@ type AuthContextType = {
   isAuthenticated: boolean;
   error: string | null;
   setError: (error: string | null) => void;
+  isSeller: boolean;
 };
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -50,6 +52,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [authUser, setAuthUser] = useState<UserType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isSeller, setIsSeller] = useState(false);
   const router = useRouter();
 
   // Charger l'utilisateur depuis AsyncStorage
@@ -59,7 +62,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setLoading(true);
         const userJson = await AsyncStorage.getItem('@user');
         if (userJson) {
-          setAuthUser(JSON.parse(userJson));
+          const parsed = JSON.parse(userJson) as UserType;
+          setAuthUser(parsed);
+          setIsSeller(!!parsed.isSellerVerified);
         }
       } catch (err) {
         console.error('Erreur de chargement:', err);
@@ -71,6 +76,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     loadUser();
   }, []);
 
+  // 🔥 Écoute en temps réel du statut vendeur
+  useEffect(() => {
+    if (!authUser?.id) return;
+
+    const userRef = doc(db, 'users', authUser.id);
+    const unsubscribe = onSnapshot(userRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const verified = data.isSellerVerified || false;
+        setIsSeller(verified);
+
+        // Optionnel : mettre à jour aussi l’objet authUser local
+        setAuthUser((prev) =>
+          prev ? { ...prev, isSellerVerified: verified } : null
+        );
+      }
+    });
+
+    return () => unsubscribe();
+  }, [authUser?.id]);
+
   // ========================================
   // LOGIN DIRECT FIRESTORE
   // ========================================
@@ -78,13 +104,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setLoading(true);
     setError(null);
     try {
-      // Hash du mot de passe pour comparaison
       const passwordHash = await Crypto.digestStringAsync(
         Crypto.CryptoDigestAlgorithm.SHA256,
         password
       );
 
-      // Chercher l'utilisateur dans Firestore
       const userDoc = doc(db, 'users', email);
       const userSnap = await getDoc(userDoc);
 
@@ -113,6 +137,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       await AsyncStorage.setItem('@user', JSON.stringify(userToStore));
       setAuthUser(userToStore);
+      setIsSeller(!!userData.isSellerVerified);
       return true;
     } catch (err) {
       console.error('Erreur de connexion:', err);
@@ -148,12 +173,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         email,
         name,
         passwordHash,
+        isSellerVerified: false,
       };
 
       await setDoc(userDoc, newUser);
-
       await AsyncStorage.setItem('@user', JSON.stringify(newUser));
       setAuthUser(newUser);
+      setIsSeller(false);
       return true;
     } catch (err) {
       console.error('Erreur d\'inscription:', err);
@@ -172,6 +198,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       await AsyncStorage.removeItem('@user');
       setAuthUser(null);
+      setIsSeller(false);
       router.replace('/login');
     } catch (err) {
       console.error('Erreur de déconnexion:', err);
@@ -219,6 +246,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         isAuthenticated,
         error,
         setError,
+        isSeller,
       }}
     >
       {children}

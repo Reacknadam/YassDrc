@@ -12,26 +12,19 @@ import {
   Dimensions,
   StyleSheet,
   StatusBar,
+  TextInput,
 } from 'react-native';
-import { query, or, where } from 'firebase/firestore';
+import { query, or, where, getDocs, collection, onSnapshot, updateDoc, doc, serverTimestamp, getDoc } from 'firebase/firestore';
 import MapView, { Marker, Polyline, Callout, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
-import { onSnapshot, updateDoc, doc, serverTimestamp, getDoc } from 'firebase/firestore';
-import { collection } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import QRCode from 'react-native-qrcode-svg';
 import SignatureScreen from 'react-native-signature-canvas';
 import { db } from '@/firebase/config';
-import { useAuth } from '@/context/AuthContext';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 
 const { width, height } = Dimensions.get('window');
-
-
-
-
-
-
 
 interface SellerProfile {
   id: string;
@@ -42,8 +35,7 @@ interface SellerProfile {
   };
 }
 
-
-type Delivery = {
+interface Delivery {
   id: string;
   orderId: string;
   sellerId: string;
@@ -66,23 +58,20 @@ type Delivery = {
   driverId: string;
   signature: string;
   createdAt: any;
-};
-
-
-interface SellerProfile {
-  id: string;
-  qrCodes: {
-    airtel?: string;
-    orange?: string;
-    mpesa?: string;
-  };
 }
 
-// --- Composant Modale de la Carte Google Maps (WebView) ---
+interface Driver {
+  id: string;
+  name: string;
+  phoneNumber: string;
+  isAvailable: boolean;
+  liveLatitude: number;
+  liveLongitude: number;
+}
+
 const MapModalWebView = ({ isVisible, onClose, delivery }: { isVisible: boolean, onClose: () => void, delivery: Delivery | null }) => {
   if (!delivery) return null;
 
-  // HTML pour la WebView, avec des styles minimalistes pour s'intégrer
   const mapHtml = `
     <!DOCTYPE html>
     <html>
@@ -95,14 +84,13 @@ const MapModalWebView = ({ isVisible, onClose, delivery }: { isVisible: boolean,
                 padding: 0;
                 width: 100%;
                 height: 100%;
-                overflow: hidden; /* Empêche le défilement de la page HTML */
+                overflow: hidden;
                 font-family: Arial, sans-serif;
             }
             #map {
                 width: 100%;
                 height: 100%;
             }
-            /* Masque les contrôles par défaut de Google Maps pour une intégration plus propre */
             .gm-fullscreen-control, .gm-svpc, .gmnoprint {
                 display: none !important;
             }
@@ -116,8 +104,8 @@ const MapModalWebView = ({ isVisible, onClose, delivery }: { isVisible: boolean,
                 const map = new google.maps.Map(document.getElementById("map"), {
                     zoom: 16,
                     center: initialLocation,
-                    disableDefaultUI: true, // Désactive tous les contrôles par défaut
-                    zoomControl: true, // Mais réactive le zoom pour l'utilisateur
+                    disableDefaultUI: true,
+                    zoomControl: true,
                     styles: [
                         { elementType: "geometry", stylers: [{ color: "#f5f5f5" }] },
                         { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
@@ -235,7 +223,6 @@ const MapModalWebView = ({ isVisible, onClose, delivery }: { isVisible: boolean,
   );
 };
 
-// --- Composant Principal de l'Application ---
 export default function DriverScreen() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [currentLocation, setCurrentLocation] = useState<Location.LocationObject | null>(null);
@@ -245,31 +232,65 @@ export default function DriverScreen() {
   const [qrType, setQrType] = useState<'airtel' | 'orange' | 'mpesa' | null>(null);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [activeTab, setActiveTab] = useState<'available' | 'active' | 'completed'>('available');
-  const [showMapModal, setShowMapModal] = useState(false); // État pour la modale WebView
-  const { authUser } = useAuth();
-
- 
+  const [showMapModal, setShowMapModal] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
-
   const [loading, setLoading] = useState(true);
-  const [qrCodeImages, setQrCodeImages] = useState<{ airtel?: string; orange?: string; mpesa?: string } | null>(null); // ✅ Utilisation de qrCodeImages
+  const [qrCodeImages, setQrCodeImages] = useState<{ airtel?: string; orange?: string; mpesa?: string } | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [user, setUser] = useState<Driver | null>(null);
+  const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
 
-const handleDeliveryPress = (delivery: Delivery) => {
-    setSelectedDelivery(delivery);
-    setModalVisible(true);
+  const handleLogin = async () => {
+    try {
+      const q = query(
+        collection(db, 'users'),
+        where('role', '==', 'driver'),
+        where('phoneNumber', '==', phone),
+        where('driverCode', '==', code)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const userData = querySnapshot.docs[0].data() as Driver;
+        setUser({ ...userData, id: querySnapshot.docs[0].id });
+        setIsLoggedIn(true);
+        
+        // Save to AsyncStorage
+       await AsyncStorage.setItem('driver', JSON.stringify({
+  ...userData,
+  id: querySnapshot.docs[0].id
+}));
+        // Update driver availability
+        await updateDoc(doc(db, 'users', querySnapshot.docs[0].id), {
+          isAvailable: true,
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        Alert.alert('Erreur', 'Numéro de téléphone ou code incorrect');
+      }
+    } catch (error) {
+      console.error('Erreur de connexion:', error);
+      Alert.alert('Erreur', 'Impossible de se connecter');
+    }
   };
-  const filteredDeliveries = deliveries.filter(delivery => {
-    if (!authUser?.id) return false; // S'assurer que l'utilisateur est authentifié
 
-    if (activeTab === 'available') return delivery.status === 'pending';
-    if (activeTab === 'active') {
-      return (delivery.status === 'picked_up' || delivery.status === 'payment_ok') && delivery.driverId === authUser.id;
-    }
-    if (activeTab === 'completed') {
-      return delivery.status === 'delivered' && delivery.driverId === authUser.id;
-    }
-    return false;
-  });
+  useEffect(() => {
+    const checkLoginStatus = async () => {
+      try {
+        const driverData = await AsyncStorage.getItem('driver');
+        if (driverData) {
+          const parsedData = JSON.parse(driverData);
+          setUser(parsedData);
+          setIsLoggedIn(true);
+        }
+      } catch (error) {
+        console.error('Error checking login status:', error);
+      }
+    };
+    checkLoginStatus();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -287,19 +308,30 @@ const handleDeliveryPress = (delivery: Delivery) => {
         },
         (location) => {
           setCurrentLocation(location);
+          
+          // Update driver location in Firestore
+          if (user) {
+            updateDoc(doc(db, 'users', user.id), {
+              liveLatitude: location.coords.latitude,
+              liveLongitude: location.coords.longitude,
+              lastUpdated: serverTimestamp(),
+            }).catch(error => {
+              console.error('Error updating location:', error);
+            });
+          }
         }
       );
     })();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
-    if (!authUser?.id) return;
+    if (!user?.id) return;
     setLoading(true);
 
     const q = query(
       collection(db, 'deliveries'),
       or(
-        where('driverId', '==', authUser.id),
+        where('driverId', '==', user.id),
         where('status', '==', 'pending')
       )
     );
@@ -317,16 +349,30 @@ const handleDeliveryPress = (delivery: Delivery) => {
     });
 
     return () => unsubscribe();
-}, [authUser]);
+  }, [user]);
 
+  const filteredDeliveries = deliveries.filter(delivery => {
+    if (!user?.id) return false;
 
+    if (activeTab === 'available') return delivery.status === 'pending';
+    if (activeTab === 'active') {
+      return (delivery.status === 'picked_up' || delivery.status === 'payment_ok') && delivery.driverId === user.id;
+    }
+    if (activeTab === 'completed') {
+      return delivery.status === 'delivered' && delivery.driverId === user.id;
+    }
+    return false;
+  });
 
+  const handleDeliveryPress = (delivery: Delivery) => {
+    setSelectedDelivery(delivery);
+    setModalVisible(true);
+  };
 
   const handleShowQR = async () => {
     if (!selectedDelivery) return;
     setLoading(true);
     try {
-      // 🎯 On va chercher le profil du vendeur dans la collection `users`
       const sellerDocRef = doc(db, 'users', selectedDelivery.sellerId);
       const sellerDocSnap = await getDoc(sellerDocRef);
 
@@ -349,21 +395,14 @@ const handleDeliveryPress = (delivery: Delivery) => {
     }
   };
 
-
-
-
-
-
-
-  
   const handleTakeDelivery = async (deliveryId: string) => {
-    if (!authUser?.id) {
+    if (!user?.id) {
       Alert.alert('Erreur', 'Vous devez être connecté pour accepter une course.');
       return;
     }
     try {
-      await updateDoc(doc(db, 'fastgo_deliveries', deliveryId), {
-        driverId: authUser.id,
+      await updateDoc(doc(db, 'deliveries', deliveryId), {
+        driverId: user.id,
         status: 'picked_up',
         updatedAt: serverTimestamp(),
       });
@@ -384,13 +423,13 @@ const handleDeliveryPress = (delivery: Delivery) => {
       const data = await response.json();
       
       if (data.status === 'SUCCESS') {
-        await updateDoc(doc(db, 'fastgo_deliveries', selectedDelivery.id), {
+        await updateDoc(doc(db, 'deliveries', selectedDelivery.id), {
           status: 'payment_ok',
           updatedAt: serverTimestamp(),
         });
         Alert.alert('Succès', 'Paiement vérifié avec succès! 💰');
         setShowQRModal(false);
-        setSelectedDelivery(null); // Réinitialiser pour éviter des états incohérents
+        setSelectedDelivery(null);
       } else {
         Alert.alert('En attente', 'Paiement non encore confirmé ou échoué.');
       }
@@ -400,14 +439,11 @@ const handleDeliveryPress = (delivery: Delivery) => {
     }
   };
 
-
-  
-
   const handleSignatureOk = async (signature: string) => {
     if (!selectedDelivery) return;
 
     try {
-      await updateDoc(doc(db, 'fastgo_deliveries', selectedDelivery.id), {
+      await updateDoc(doc(db, 'deliveries', selectedDelivery.id), {
         status: 'delivered',
         signature,
         deliveredAt: serverTimestamp(),
@@ -509,6 +545,50 @@ const handleDeliveryPress = (delivery: Delivery) => {
 
   const deg2rad = (deg: number) => deg * (Math.PI/180);
 
+  if (!isLoggedIn) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loginContainer}>
+          <View style={styles.loginHeader}>
+            <Ionicons name="car-sport" size={60} color={Colors.primary} />
+            <Text style={styles.loginTitle}>FASTGO Driver</Text>
+            <Text style={styles.loginSubtitle}>Connectez-vous pour commencer</Text>
+          </View>
+          
+          <View style={styles.loginForm}>
+            <View style={styles.inputContainer}>
+              <Ionicons name="call" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Numéro de téléphone"
+                placeholderTextColor={Colors.textLight}
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+              />
+            </View>
+            
+            <View style={styles.inputContainer}>
+              <Ionicons name="key" size={20} color={Colors.textSecondary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Code d'accès"
+                placeholderTextColor={Colors.textLight}
+                value={code}
+                onChangeText={setCode}
+                secureTextEntry
+              />
+            </View>
+            
+            <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
+              <Text style={styles.loginButtonText}>Se connecter</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (!currentLocation) {
     return (
       <View style={styles.loadingContainer}>
@@ -531,7 +611,7 @@ const handleDeliveryPress = (delivery: Delivery) => {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>FASTGO Driver</Text>
-          <Text style={styles.headerSubtitle}>Bonjour, {authUser?.name?.split(' ')[0] || 'Livreur'} 👋</Text>
+          <Text style={styles.headerSubtitle}>Bonjour, {user?.name?.split(' ')[0] || 'Livreur'} 👋</Text>
         </View>
         <TouchableOpacity style={styles.notificationButton}>
           <Ionicons name="notifications" size={24} color={Colors.primary} />
@@ -607,7 +687,6 @@ const handleDeliveryPress = (delivery: Delivery) => {
               />
             )}
             {deliveries.map((delivery) => {
-              // ✅ Sécurité : Vérifier que les coordonnées existent avant de rendre le marqueur
               if (delivery.lat && delivery.lng) {
                 return (
                   <Marker
@@ -630,7 +709,7 @@ const handleDeliveryPress = (delivery: Delivery) => {
                   </Marker>
                 );
               }
-              return null; // Ne rien rendre si les coordonnées sont manquantes
+              return null;
             })}
             {selectedDelivery && selectedDelivery.deliveryRoute && (
               <Polyline
@@ -750,23 +829,21 @@ const handleDeliveryPress = (delivery: Delivery) => {
   );
 }
 
-// --- Styles de l'Application ---
 const Colors = {
-  primary: '#007AFF',       // Bleu vif pour les actions principales
-  secondary: '#5AC8FA',     // Bleu clair
-  background: '#F8F9FA',    // Arrière-plan général léger
-  cardBackground: '#FFFFFF', // Fond des cartes
-  textPrimary: '#212529',   // Texte principal sombre
-  textSecondary: '#6C757D', // Texte secondaire gris
-  textLight: '#ADB5BD',     // Texte très clair pour les états vides
-  border: '#DEE2E6',        // Bordures légères
-  shadow: 'rgba(0,0,0,0.1)',// Ombre subtile
-  danger: '#DC3545',        // Rouge pour les actions dangereuses ou fermer
-  success: '#28A745',       // Vert pour le succès
-  info: '#17A2B8',          // Bleu-vert pour l'information
-  warning: '#FFC107',       // Jaune pour les avertissements
+  primary: '#007AFF',
+  secondary: '#5AC8FA',
+  background: '#F8F9FA',
+  cardBackground: '#FFFFFF',
+  textPrimary: '#212529',
+  textSecondary: '#6C757D',
+  textLight: '#ADB5BD',
+  border: '#DEE2E6',
+  shadow: 'rgba(0,0,0,0.1)',
+  danger: '#DC3545',
+  success: '#28A745',
+  info: '#17A2B8',
+  warning: '#FFC107',
 
-  // Statuts des livraisons
   statusPendingBg: '#FFF3CD',
   statusPendingText: '#856404',
   statusPickedUpBg: '#D1ECF1',
@@ -776,12 +853,10 @@ const Colors = {
   statusDeliveredBg: '#E2E3E5',
   statusDeliveredText: '#343A40',
 
-  // Couleurs des opérateurs mobiles
-  airtel: '#FF3B30',  // Rouge
-  orange: '#FF9500',  // Orange
-  mpesa: '#28CD41',   // Vert
+  airtel: '#FF3B30',
+  orange: '#FF9500',
+  mpesa: '#28CD41',
   
-  // Couleurs des marqueurs de carte
   markerPending: 'red',
   markerPickedUp: 'orange',
   markerDelivered: 'green',
@@ -791,6 +866,60 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  loginContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 20,
+  },
+  loginHeader: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  loginTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: Colors.textPrimary,
+    marginTop: 16,
+  },
+  loginSubtitle: {
+    fontSize: 16,
+    color: Colors.textSecondary,
+    marginTop: 8,
+  },
+  loginForm: {
+    width: '100%',
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.cardBackground,
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  inputIcon: {
+    marginRight: 10,
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+    color: Colors.textPrimary,
+  },
+  loginButton: {
+    backgroundColor: Colors.primary,
+    paddingVertical: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  loginButtonText: {
+    color: Colors.cardBackground,
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   loadingContainer: {
     flex: 1,
@@ -854,20 +983,20 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   modalOverlay: {
-  flex: 1,
-  justifyContent: 'flex-end',
-  backgroundColor: 'rgba(0, 0, 0, 0.5)',
-},
-modalHeader: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  marginBottom: 16,
-},
-modalTitle: {
-  fontSize: 20,
-  fontWeight: 'bold',
-},
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
   notificationBadge: {
     width: 10,
     height: 10,
@@ -938,7 +1067,7 @@ modalTitle: {
     flex: 1,
     marginTop: 15,
     borderRadius: 20,
-    overflow: 'hidden', // Pour que le borderRadius s'applique
+    overflow: 'hidden',
     marginHorizontal: 15,
     shadowColor: Colors.shadow,
     shadowOffset: { width: 0, height: 4 },
@@ -1003,54 +1132,54 @@ modalTitle: {
     fontSize: 14,
   },
   qrModalContent: {
-  backgroundColor: '#fff',
-  padding: 24,
-  borderRadius: 16,
-  width: '90%',
-  alignSelf: 'center',
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 4 },
-  shadowOpacity: 0.1,
-  shadowRadius: 8,
-  elevation: 5,
-},
-qrImageContainer: {
-  alignItems: 'center',
-  marginBottom: 24,
-  borderWidth: 1,
-  borderColor: '#e5e5e5',
-  borderRadius: 12,
-  padding: 16,
-},
-qrLabel: {
-  fontSize: 16,
-  fontWeight: 'bold',
-  marginBottom: 8,
-},
-qrImage: {
-  width: 200,
-  height: 200,
-  resizeMode: 'contain',
-},
-signatureModalContainer: {
-  flex: 1,
-  backgroundColor: '#fff',
-},
-signatureHeader: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  padding: 20,
-  backgroundColor: '#f3f4f6',
-},
-signatureTitle: {
-  fontSize: 18,
-  fontWeight: 'bold',
-  color: '#1f2937',
-},
-closeButton: {
-  padding: 8,
-},
+    backgroundColor: '#fff',
+    padding: 24,
+    borderRadius: 16,
+    width: '90%',
+    alignSelf: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  qrImageContainer: {
+    alignItems: 'center',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#e5e5e5',
+    borderRadius: 12,
+    padding: 16,
+  },
+  qrLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  qrImage: {
+    width: 200,
+    height: 200,
+    resizeMode: 'contain',
+  },
+  signatureModalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  signatureHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f3f4f6',
+  },
+  signatureTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1f2937',
+  },
+  closeButton: {
+    padding: 8,
+  },
   cardDetails: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1092,7 +1221,7 @@ closeButton: {
     elevation: 5,
   },
   actionButtonSecondary: {
-    backgroundColor: '#8E24AA', // Violet distinct
+    backgroundColor: '#8E24AA',
     paddingVertical: 16,
     borderRadius: 15,
     flexDirection: 'row',
@@ -1148,7 +1277,7 @@ closeButton: {
     backgroundColor: Colors.cardBackground,
     padding: 15,
     borderRadius: 15,
-    width: width * 0.7, // 70% de la largeur de l'écran
+    width: width * 0.7,
     shadowColor: Colors.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
@@ -1175,7 +1304,7 @@ closeButton: {
   },
   calloutActions: {
     flexDirection: 'row',
-    flexWrap: 'wrap', // Permet aux boutons de passer à la ligne
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     marginTop: 10,
     borderTopWidth: 1,
@@ -1189,8 +1318,8 @@ closeButton: {
     borderRadius: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8, // Marge pour l'espacement si les boutons passent à la ligne
-    minWidth: '48%', // Pour avoir 2 boutons par ligne
+    marginBottom: 8,
+    minWidth: '48%',
     justifyContent: 'center',
   },
   calloutActionButtonText: {
@@ -1206,7 +1335,7 @@ const modalStyles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)', // Fond assombri pour la modale
+    backgroundColor: 'rgba(0,0,0,0.6)',
   },
   modalContent: {
     backgroundColor: Colors.cardBackground,
@@ -1240,9 +1369,8 @@ const modalStyles = StyleSheet.create({
   },
   webView: {
     flex: 1,
-    backgroundColor: Colors.background, // Empêche le flash blanc au chargement
+    backgroundColor: Colors.background,
   },
-  // Styles spécifiques pour la modale QR Code
   qrModalContent: {
     backgroundColor: Colors.cardBackground,
     borderRadius: 25,
@@ -1338,171 +1466,8 @@ const modalStyles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.cardBackground,
   },
-  // Styles spécifiques pour la modale de signature
   signatureModalContainer: {
     flex: 1,
     backgroundColor: Colors.cardBackground,
   },
 });
-
-// Style personnalisé pour la carte Google Maps (mode clair)
-const mapStyle = [
-  {
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#f5f5f5"
-      }
-    ]
-  },
-  {
-    "elementType": "labels.icon",
-    "stylers": [
-      {
-        "visibility": "off"
-      }
-    ]
-  },
-  {
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#616161"
-      }
-    ]
-  },
-  {
-    "elementType": "labels.text.stroke",
-    "stylers": [
-      {
-        "color": "#f5f5f5"
-      }
-    ]
-  },
-  {
-    "featureType": "administrative.land_parcel",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#bdbdbd"
-      }
-    ]
-  },
-  {
-    "featureType": "poi",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#eeeeee"
-      }
-    ]
-  },
-  {
-    "featureType": "poi",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#757575"
-      }
-    ]
-  },
-  {
-    "featureType": "poi.park",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#e5e5e5"
-      }
-    ]
-  },
-  {
-    "featureType": "poi.park",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#9e9e9e"
-      }
-    ]
-  },
-  {
-    "featureType": "road",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#ffffff"
-      }
-    ]
-  },
-  {
-    "featureType": "road.arterial",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#757575"
-      }
-    ]
-  },
-  {
-    "featureType": "road.highway",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#dadada"
-      }
-    ]
-  },
-  {
-    "featureType": "road.highway",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#616161"
-      }
-    ]
-  },
-  {
-    "featureType": "road.local",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#9e9e9e"
-      }
-    ]
-  },
-  {
-    "featureType": "transit.line",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#e5e5e5"
-      }
-    ]
-  },
-  {
-    "featureType": "transit.station",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#eeeeee"
-      }
-    ]
-  },
-  {
-    "featureType": "water",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#c9c9c9"
-      }
-    ]
-  },
-  {
-    "featureType": "water",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#9e9e9e"
-      }
-    ]
-  }
-];

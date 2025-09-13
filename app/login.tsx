@@ -1,22 +1,22 @@
+import { useAuth } from '@/context/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View,
+  ActivityIndicator,
+  Animated,
+  Dimensions,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-  ScrollView,
-  Platform,
-  KeyboardAvoidingView,
-  SafeAreaView,
-  Dimensions,
-  Animated,
+  View,
 } from 'react-native';
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '@/context/AuthContext';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
 
@@ -26,6 +26,11 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [success, setSuccess] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  const isEmailValid = useMemo(() => /\S+@\S+\.\S+/.test(email.trim()), [email]);
+  const isPasswordValid = useMemo(() => password.trim().length >= 6, [password]);
+  const formValid = isEmailValid && isPasswordValid;
 
   const buttonScale = new Animated.Value(1);
   const cardTranslateY = new Animated.Value(0);
@@ -46,8 +51,8 @@ export default function Login() {
 
   const handleLogin = async () => {
     setError(null);
-    if (!email || !password) {
-      setError("Veuillez saisir votre email et votre mot de passe.");
+    if (!email || !password || !formValid) {
+      setError("Veuillez saisir des identifiants valides (email + mot de passe ≥ 6 caractères).");
       return;
     }
 
@@ -137,6 +142,9 @@ export default function Login() {
                   onChangeText={setEmail}
                 />
               </View>
+              {!isEmailValid && email.length > 0 && (
+                <Text style={styles.helperError}>Format d'email invalide.</Text>
+              )}
 
               <View style={styles.inputContainer}>
                 <Ionicons name="lock-closed-outline" size={20} color="#8E8E93" style={styles.inputIcon} />
@@ -144,11 +152,17 @@ export default function Login() {
                   style={styles.input}
                   placeholder="Mot de passe"
                   placeholderTextColor="#A8A8B3"
-                  secureTextEntry
+                  secureTextEntry={!showPassword}
                   value={password}
                   onChangeText={setPassword}
                 />
+                <TouchableOpacity onPress={() => setShowPassword(p => !p)} accessibilityRole="button" accessibilityLabel={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}>
+                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#8E8E93" />
+                </TouchableOpacity>
               </View>
+              {!isPasswordValid && password.length > 0 && (
+                <Text style={styles.helperError}>Au moins 6 caractères.</Text>
+              )}
 
               <TouchableOpacity style={styles.forgotPasswordButton}>
                 <Text style={styles.forgotPasswordText}>Mot de passe oublié ?</Text>
@@ -159,7 +173,7 @@ export default function Login() {
                 onPress={handleLogin}
                 onPressIn={handlePressIn}
                 onPressOut={handlePressOut}
-                disabled={authLoading}
+                disabled={authLoading || !formValid}
               >
                 {authLoading ? (
                   <ActivityIndicator color="#fff" />
@@ -223,13 +237,20 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
     borderRadius: 25,
-    padding: 100,
+    padding: 25,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
     shadowRadius: 20,
     elevation: 15,
+  },
+  helperError: {
+    width: '100%',
+    color: '#ef4444',
+    marginTop: -8,
+    marginBottom: 10,
+    fontSize: 12,
   },
   title: {
     fontSize: 32,

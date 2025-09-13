@@ -1,10 +1,8 @@
 import { useAuth } from '@/context/AuthContext';
 import { db, storage } from '@/firebase/config';
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
-import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePickerExpo from 'expo-image-picker';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { router, useRouter } from 'expo-router';
 import {
   addDoc,
@@ -17,12 +15,11 @@ import {
   orderBy,
   query,
   serverTimestamp,
-  setDoc,
   Timestamp,
   updateDoc,
-  where,
-  writeBatch
+  where
 } from 'firebase/firestore';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import moment from 'moment';
 import 'moment/locale/fr';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -35,10 +32,8 @@ import {
   FlatList,
   Image,
   Modal,
-  RefreshControl,
   SafeAreaView,
   ScrollView,
-  Share,
   StyleProp,
   StyleSheet,
   Switch,
@@ -2279,13 +2274,7 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ onLogout, onDeleteAccount, us
 </TouchableOpacity>
 
 
-  <TouchableOpacity style={styles.settingItem} onPress={() => router.push('/driver')}>
-  <View style={styles.settingLeft}>
-    <Ionicons name="qr-code" size={24} color="#6C63FF" />
-    <Text style={styles.settingText}>JE SUIS LIVREUR FAST GO</Text>
-  </View>
-  <Ionicons name="chevron-forward" size={20} color="#ccc" />
-</TouchableOpacity>
+
       <View style={styles.settingItem}>
         <View style={styles.settingLeft}>
          
@@ -2303,6 +2292,15 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ onLogout, onDeleteAccount, us
         />
       </View>
       <Text style={styles.sectionTitle}>Assistance</Text>
+      <TouchableOpacity style={styles.settingItem} onPress={() => router.push('/(tabs)/help')}>
+        <View style={styles.settingLeft}>
+          <View style={styles.settingIcon}>
+            <Ionicons name="help-circle-outline" size={24} color="#6C63FF" />
+          </View>
+          <Text style={styles.settingText}>Centre d'aide / FAQ</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#ccc" />
+      </TouchableOpacity>
       <TouchableOpacity style={styles.settingItem} onPress={onOpenReportModal}>
         <View style={styles.settingLeft}>
           <View style={styles.settingIcon}>
@@ -3199,6 +3197,15 @@ const handleSellerFormSubmit = async () => {
                   <Ionicons name="checkmark-circle-outline" size={24} color="#fff" />
                   <Text style={styles.requestSellerButtonText}>Confirmer manuellement</Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.requestSellerButton, { backgroundColor: '#007AFF', marginTop: 10 }]}
+                  onPress={() => router.push('/subs')}
+                >
+                  <Ionicons name="refresh" size={24} color="#fff" />
+                  <Text style={styles.requestSellerButtonText}>Recommencer le paiement</Text>
+                </TouchableOpacity>
+                
                 {/* ✅ AJOUTE CES DEUX BOUTONS */}
     <View style={{ flexDirection: 'row', marginTop: 12, gap: 10 }}>
      

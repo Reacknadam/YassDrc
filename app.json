@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "jumy",
+    "name": "Yass",
     "slug": "YassDrc",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.jpg",
-    "scheme": "jumy",
+    "scheme": "yass",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -17,7 +17,13 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.israel_ltd.Jimmy"
+      "package": "com.israel_ltd.yass",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -56,6 +62,12 @@
       "eas": {
         "projectId": "bf0661b1-391c-418e-a2f5-edf9d23ec30f"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/bf0661b1-391c-418e-a2f5-edf9d23ec30f"
     }
   }
 }
