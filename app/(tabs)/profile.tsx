@@ -80,9 +80,9 @@ interface Address {
 }
 
 
-interface ManualConfirmationModalProps { 
-  visible: boolean; 
-  onClose: () => void; 
+interface ManualConfirmationModalProps {
+  visible: boolean;
+  onClose: () => void;
   onConfirm: (confirmationCode: string, smsMessage: string) => void;
   loading: boolean;
   authUser: any; // Ajoutez cette ligne
@@ -1285,20 +1285,6 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ visible, title, m
   );
 };
 
-
-
-
-
-
-
-
-
-const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-
-
-
-
-
 const ProductModal: React.FC<ProductModalProps> = ({ visible, onClose, product, sellerId, onProductSaved }) => {
   const [name, setName] = useState(product?.name || '');
   const [description, setDescription] = useState(product?.description || '');
@@ -1328,7 +1314,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ visible, onClose, product, 
       const imageUri = pickerResult.assets[0].uri;
       const imagePath = `products/${sellerId}/${Date.now()}_${imageUri.split('/').pop()}`;
       const imageUrl = await uploadImageAsync(imageUri, imagePath);
-      
+
       setImages((prev: string[]) => [...prev, imageUrl]);
     } catch (error) {
       console.error('Erreur upload image: ', error);
@@ -1399,7 +1385,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ visible, onClose, product, 
           <ScrollView style={styles.modalContent}>
             <Text style={styles.inputLabel}>Nom du produit</Text>
             <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Nom du produit" />
-            
+
             <Text style={styles.inputLabel}>Description</Text>
             <TextInput
               style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
@@ -1408,7 +1394,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ visible, onClose, product, 
               placeholder="Description détaillée"
               multiline
             />
-            
+
             <Text style={styles.inputLabel}>Prix (CDF)</Text>
             <TextInput
               style={styles.input}
@@ -1417,7 +1403,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ visible, onClose, product, 
               placeholder="0.00"
               keyboardType="numeric"
             />
-            
+
             <Text style={styles.inputLabel}>Catégorie</Text>
             <TextInput
               style={styles.input}
@@ -1425,7 +1411,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ visible, onClose, product, 
               onChangeText={setCategory}
               placeholder="Ex: Électronique, Vêtements"
             />
-            
+
             <Text style={styles.inputLabel}>Stock</Text>
             <TextInput
               style={styles.input}
@@ -1434,13 +1420,13 @@ const ProductModal: React.FC<ProductModalProps> = ({ visible, onClose, product, 
               placeholder="Quantité disponible"
               keyboardType="numeric"
             />
-            
+
             <Text style={styles.inputLabel}>Images ({images.length} ajoutée{images.length > 1 ? 's' : ''})</Text>
             <TouchableOpacity style={styles.imagePickerButton} onPress={handlePickImage}>
               <Ionicons name="image-outline" size={24} color="#6C63FF" />
               <Text style={styles.imagePickerButtonText}>Choisir une image</Text>
             </TouchableOpacity>
-            
+
             {images.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imagePreviewContainer}>
                 {images.map((imgBase64, index) => (
@@ -1456,7 +1442,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ visible, onClose, product, 
                 ))}
               </ScrollView>
             )}
-            
+
             <TouchableOpacity
               style={[styles.submitButton, loading && styles.disabledButton]}
               onPress={handleSaveProduct}
@@ -1481,7 +1467,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ visible, onClose, product, 
 const OrderModal: React.FC<OrderModalProps> = ({ visible, onClose, order, onStatusChange, isSeller }) => {
   const [trackingNumber, setTrackingNumber] = useState(order?.trackingNumber || '');
   const [statusNote, setStatusNote] = useState('');
-  
+
   if (!order) return null;
 
   const statusMap: Record<Order['status'], { text: string; style: StyleProp<TextStyle>; icon: string }> = {
@@ -1501,7 +1487,7 @@ const OrderModal: React.FC<OrderModalProps> = ({ visible, onClose, order, onStat
     }
     onStatusChange(order.id, newStatus, trackingNumber, statusNote);
   };
-    
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.modalSafeArea}>
@@ -1517,47 +1503,47 @@ const OrderModal: React.FC<OrderModalProps> = ({ visible, onClose, order, onStat
               <Ionicons name={currentStatus.icon as any} size={30} color={(currentStatus.style as any).color} />
               <Text style={[styles.orderStatusText, currentStatus.style]}>{currentStatus.text}</Text>
             </View>
-            
+
             <View style={styles.detailSection}>
               <Text style={styles.detailLabel}>ID Commande:</Text>
               <Text style={styles.detailValue}>#{order.id.slice(0, 10)}</Text>
             </View>
-            
+
             <View style={styles.detailSection}>
               <Text style={styles.detailLabel}>Produit:</Text>
               <Text style={styles.detailValue}>{order.productName}</Text>
             </View>
-            
+
             <View style={styles.detailSection}>
               <Text style={styles.detailLabel}>Quantité:</Text>
               <Text style={styles.detailValue}>{order.quantity}</Text>
             </View>
-            
+
             <View style={styles.detailSection}>
               <Text style={styles.detailLabel}>Prix Total:</Text>
               <Text style={styles.detailValue}>{(order.totalPrice || 0).toFixed(2)} </Text>
             </View>
-            
+
             <View style={styles.detailSection}>
               <Text style={styles.detailLabel}>Acheteur:</Text>
               <Text style={styles.detailValue}>{order.buyerName}</Text>
             </View>
-            
+
             <View style={styles.detailSection}>
               <Text style={styles.detailLabel}>Lieu de Livraison:</Text>
               <Text style={styles.detailValue}>{order.deliveryLocation}</Text>
             </View>
-            
+
             <View style={styles.detailSection}>
               <Text style={styles.detailLabel}>Adresse de Livraison:</Text>
               <Text style={styles.detailValue}>{order.deliveryAddress}</Text>
             </View>
-            
+
             <View style={styles.detailSection}>
               <Text style={styles.detailLabel}>Date de la commande:</Text>
               <Text style={styles.detailValue}>{order.createdAt?.toDate().toLocaleString()}</Text>
             </View>
-            
+
             {isSeller && order.status === 'shipped' && (
               <View style={styles.detailSection}>
                 <Text style={styles.detailLabel}>Numéro de suivi:</Text>
@@ -1598,7 +1584,7 @@ const OrderModal: React.FC<OrderModalProps> = ({ visible, onClose, order, onStat
                     <Text style={styles.submitButtonText}>Confirmer la Commande</Text>
                   </TouchableOpacity>
                 )}
-                
+
                 {order.status === 'confirmed' && (
                   <>
                     <Text style={styles.inputLabel}>Numéro de suivi</Text>
@@ -1616,7 +1602,7 @@ const OrderModal: React.FC<OrderModalProps> = ({ visible, onClose, order, onStat
                     </TouchableOpacity>
                   </>
                 )}
-                
+
                 {order.status === 'shipped' && (
                   <TouchableOpacity
                     style={[styles.submitButton, styles.deliverButton]}
@@ -1625,7 +1611,7 @@ const OrderModal: React.FC<OrderModalProps> = ({ visible, onClose, order, onStat
                     <Text style={styles.submitButtonText}>Marquer comme Livrée</Text>
                   </TouchableOpacity>
                 )}
-                
+
                 {(order.status === 'pending' || order.status === 'confirmed') && (
                   <>
                     <Text style={styles.inputLabel}>Note (optionnelle)</Text>
@@ -1645,7 +1631,7 @@ const OrderModal: React.FC<OrderModalProps> = ({ visible, onClose, order, onStat
                 )}
               </View>
             )}
-            
+
             <TouchableOpacity style={[styles.cancelButton, { marginTop: 20 }]} onPress={onClose}>
               <Text style={styles.cancelButtonText}>Fermer</Text>
             </TouchableOpacity>
@@ -1797,9 +1783,6 @@ const SellerFormModal: React.FC<SellerFormModalProps> = ({
   );
 };
 
-
-
-
 const EditProfileModal: React.FC<EditProfileModalProps> = ({ visible, onClose, userProfile, onSave, loading }) => {
   const { authUser } = useAuth(); // Ajouter useAuth
   const [phoneNumber, setPhoneNumber] = useState(userProfile?.phoneNumber || '');
@@ -1824,7 +1807,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ visible, onClose, u
       const imageUri = pickerResult.assets[0].uri;
       const imagePath = `profiles/${authUser?.id}/${Date.now()}_${imageUri.split('/').pop()}`;
       const uploadedUrl = await uploadImageAsync(imageUri, imagePath);
-      
+
       setPhotoUrl(uploadedUrl);
     } catch (error) {
       console.error('Erreur upload image: ', error);
@@ -1862,32 +1845,32 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ visible, onClose, u
             </View>
 
             <Text style={styles.inputLabel}>Numéro de téléphone</Text>
-<View style={{ 
-  flexDirection: 'row', 
-  alignItems: 'center', 
-  borderWidth: 1, 
-  borderColor: '#ccc', 
-  borderRadius: 8, 
-  paddingHorizontal: 10 
-}}>
-  <Text style={{ marginRight: 5, fontWeight: 'bold' }}>+243</Text>
-  <TextInput
-    style={{ flex: 1, height: 40 }}
-    value={phoneNumber}
-    onChangeText={(text) => {
-      // Supprime tout sauf les chiffres
-      let formatted = text.replace(/[^0-9]/g, '');
-      // Forcer à commencer par 9
-      if (formatted && !formatted.startsWith('9')) {
-        formatted = '9' + formatted;
-      }
-      setPhoneNumber(formatted);
-    }}
-    placeholder="999 999 999"
-    keyboardType="phone-pad"
-    maxLength={9} 
-  />
-</View>
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              borderWidth: 1,
+              borderColor: '#ccc',
+              borderRadius: 8,
+              paddingHorizontal: 10
+            }}>
+              <Text style={{ marginRight: 5, fontWeight: 'bold' }}>+243</Text>
+              <TextInput
+                style={{ flex: 1, height: 40 }}
+                value={phoneNumber}
+                onChangeText={(text) => {
+                  // Supprime tout sauf les chiffres
+                  let formatted = text.replace(/[^0-9]/g, '');
+                  // Forcer à commencer par 9
+                  if (formatted && !formatted.startsWith('9')) {
+                    formatted = '9' + formatted;
+                  }
+                  setPhoneNumber(formatted);
+                }}
+                placeholder="999 999 999"
+                keyboardType="phone-pad"
+                maxLength={9}
+              />
+            </View>
 
 
             <TouchableOpacity
@@ -1911,40 +1894,16 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ visible, onClose, u
   );
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // Fonction pour uploader une image vers Firebase Storage
 const uploadImageAsync = async (uri: string, path: string): Promise<string> => {
   const response = await fetch(uri);
   const blob = await response.blob();
-  
+
   const storageRef = ref(storage, path);
   await uploadBytes(storageRef, blob);
-  
+
   return await getDownloadURL(storageRef);
 };
-
-
-// en haut de ton composant Profile (ou dans le bon onglet)
-const [transactionId, setTransactionId] = useState("");
-const [smsMessage, setSmsMessage] = useState("");
-const operatorId = userProfile?.uid || ""; // ID de l’utilisateur connecté
-
-const { authUser } = useAuth();
-
 
 const sendManualConfirmation = async (
   transactionId: string,
@@ -1964,14 +1923,14 @@ const sendManualConfirmation = async (
       operatorId,
       createdAt: serverTimestamp(),
       user: {
-  id: authUser.id,
-  email: authUser.email,
-  name: authUser.name,
-  isSellerVerified: authUser.isSellerVerified ?? false,
-  photoUrl: authUser.photoUrl ?? null,
-  phoneNumber: authUser.phoneNumber ?? null,
-  sellerForm: authUser.sellerForm || null,
-},
+        id: authUser.id,
+        email: authUser.email,
+        name: authUser.name,
+        isSellerVerified: authUser.isSellerVerified ?? false,
+        photoUrl: authUser.photoUrl ?? null,
+        phoneNumber: authUser.phoneNumber ?? null,
+        sellerForm: authUser.sellerForm || null,
+      },
     });
 
     Alert.alert('Succès', 'Le message de confirmation a été envoyé.');
@@ -1980,10 +1939,6 @@ const sendManualConfirmation = async (
     Alert.alert('Erreur', "Impossible d'envoyer le message de confirmation.");
   }
 };
-
-
-
-
 
 const OrdersTab: React.FC<OrdersTabProps> = ({ orders, onSelectOrder, loading }) => {
   const [filter, setFilter] = useState<'all' | Order['status']>('all');
@@ -2110,7 +2065,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, onAddProduct, onEdi
             </View>
           )}
           keyExtractor={item => item.id}
-          
+
         />
       ) : (
         <View style={styles.emptyState}>
@@ -2266,18 +2221,18 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ onLogout, onDeleteAccount, us
         <Ionicons name="chevron-forward" size={20} color="#ccc" />
       </TouchableOpacity>
       <TouchableOpacity style={styles.settingItem} onPress={() => router.push('/upload-qr')}>
-  <View style={styles.settingLeft}>
-    <Ionicons name="qr-code" size={24} color="#6C63FF" />
-    <Text style={styles.settingText}>Ajouter mes QR codes Mobile Money</Text>
-  </View>
-  <Ionicons name="chevron-forward" size={20} color="#ccc" />
-</TouchableOpacity>
+        <View style={styles.settingLeft}>
+          <Ionicons name="qr-code" size={24} color="#6C63FF" />
+          <Text style={styles.settingText}>Ajouter mes QR codes Mobile Money</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#ccc" />
+      </TouchableOpacity>
 
 
 
       <View style={styles.settingItem}>
         <View style={styles.settingLeft}>
-         
+
           <View style={styles.settingIcon}>
             <Ionicons name="notifications-outline" size={24} color="#6C63FF" />
           </View>
@@ -2386,16 +2341,17 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, l
   );
 };
 
-
-const ManualConfirmationModal: React.FC<{ 
-  visible: boolean; 
-  onClose: () => void; 
+const ManualConfirmationModal: React.FC<{
+  visible: boolean;
+  onClose: () => void;
   onConfirm: (confirmationCode: string, smsMessage: string) => void;
   loading: boolean;
   authUser: any;
 }> = ({ visible, onClose, onConfirm, loading, authUser }) => {
   const [confirmationCode, setConfirmationCode] = useState('');
   const [smsMessage, setSmsMessage] = useState('');
+  const [transactionId, setTransactionId] = useState(''); // Added missing state
+  const operatorId = authUser?.uid || ''; // Added missing variable
 
   useEffect(() => {
     if (!visible) {
@@ -2419,35 +2375,35 @@ const ManualConfirmationModal: React.FC<{
             <Text style={styles.modalSubtitle}>
               Si vous avez reçu un message de confirmation de transaction, veuillez le saisir ci-dessous.
             </Text>
-            
-            <Text style={styles.inputLabel}>Message de confirmation de confirmation de la transaction selon l'operateur </Text>
+
+            <Text style={styles.inputLabel}>Message de confirmation de la transaction selon l'operateur </Text>
             <TextInput
               style={styles.input}
               value={confirmationCode}
               onChangeText={setConfirmationCode}
               placeholder="Entrez le message reçu par SMS"
             />
-            
-          <TouchableOpacity
-  style={styles.submitButton}
-  onPress={() => sendManualConfirmation(
-    transactionId,
-    confirmationCode,
-    operatorId,
-    authUser
-      ? {
-          ...authUser,
-          sellerForm: authUser.sellerForm && 'idNumber' in authUser.sellerForm
-            ? authUser.sellerForm as SellerForm
-            : undefined
-        }
-      : null
-  )}
->
-  <Text style={styles.submitButtonText}>Envoyer la confirmation</Text>
-</TouchableOpacity>
 
-            
+            <TouchableOpacity
+              style={styles.submitButton}
+              onPress={() => sendManualConfirmation(
+                transactionId,
+                confirmationCode,
+                operatorId,
+                authUser
+                  ? {
+                    ...authUser,
+                    sellerForm: authUser.sellerForm && 'idNumber' in authUser.sellerForm
+                      ? authUser.sellerForm as SellerForm
+                      : undefined
+                  }
+                  : null
+              )}
+            >
+              <Text style={styles.submitButtonText}>Envoyer la confirmation</Text>
+            </TouchableOpacity>
+
+
             <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
               <Text style={styles.cancelButtonText}>Annuler</Text>
             </TouchableOpacity>
@@ -2457,13 +2413,6 @@ const ManualConfirmationModal: React.FC<{
     </Modal>
   );
 };
-
-
-
-
-
-
-
 
 const ReviewsTab: React.FC<ReviewsTabProps> = ({ reviews, loading }) => {
   if (loading) {
@@ -2641,16 +2590,14 @@ const PromotionsTab: React.FC<PromotionsTabProps> = ({ promotions, onAddPromotio
 // =================================================================================
 
 const Profile = () => {
+  // ✅ TOUS LES HOOKS SONT MAINTENANT AU DÉBUT DU COMPOSANT
   const { authUser, logout } = useAuth();
   const router = useRouter();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-const [paymentPhoneNumber, setPaymentPhoneNumber] = useState(userProfile?.paymentPhoneNumber || '');
-const [selectedProvider, setSelectedProvider] = useState<string | null>(userProfile?.selectedProvider || null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('profile');
-  // en haut de ton composant Profile (ou dans le bon onglet)
-const [transactionId, setTransactionId] = useState("");
-const [smsMessage, setSmsMessage] = useState("");
-const operatorId = authUser?.id || ""; // ID de l’utilisateur connecté
+  const [transactionId, setTransactionId] = useState("");
+  const [smsMessage, setSmsMessage] = useState("");
+  const operatorId = authUser?.id || "";
 
   const [loading, setLoading] = useState<LoadingStates>({
     profile: true,
@@ -2675,7 +2622,6 @@ const operatorId = authUser?.id || ""; // ID de l’utilisateur connecté
     address: '',
     isAdult: false,
   });
-  const [currentStep, setCurrentStep] = useState(1);
   const [manualConfirmationModal, setManualConfirmationModal] = useState(false);
   const [subscriptionPrice, setSubscriptionPrice] = useState(DEFAULT_SUBSCRIPTION_PRICE);
   const [products, setProducts] = useState<Product[]>([]);
@@ -2694,7 +2640,7 @@ const operatorId = authUser?.id || ""; // ID de l’utilisateur connecté
     visible: false,
     title: '',
     message: '',
-    onConfirm: () => {},
+    onConfirm: () => { },
   });
   const [stats, setStats] = useState({
     productsCount: 0,
@@ -2741,19 +2687,19 @@ const operatorId = authUser?.id || ""; // ID de l’utilisateur connecté
       setLoading(prev => ({ ...prev, products: false }));
     });
 
-const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
-  const fetchedOrders: Order[] = snapshot.docs.map(doc => {
-    const orderData = doc.data();
-    const status = orderData.status || 'Inconnu'; // Default value if status is missing
-    return {
-      id: doc.id,
-      ...orderData,
-      status: typeof status === 'string' ? status : 'Inconnu'
-    };
-  }) as Order[];
-  setOrders(fetchedOrders);
-  setLoading(prev => ({ ...prev, orders: false }));
-});
+    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+      const fetchedOrders: Order[] = snapshot.docs.map(doc => {
+        const orderData = doc.data();
+        const status = orderData.status || 'Inconnu'; // Default value if status is missing
+        return {
+          id: doc.id,
+          ...orderData,
+          status: typeof status === 'string' ? status : 'Inconnu'
+        };
+      }) as Order[];
+      setOrders(fetchedOrders);
+      setLoading(prev => ({ ...prev, orders: false }));
+    });
     const unsubscribePromotions = onSnapshot(promotionsQuery, (snapshot) => {
       const fetchedPromotions: Promotion[] = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -2786,11 +2732,11 @@ const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
   }, [authUser]);
 
   const fetchReviews = useCallback(async () => {
-    if (!isSeller) return;
+    if (!isSeller || !authUser?.id) return;
     setLoading(prev => ({ ...prev, reviews: true }));
     const reviewsRef = collection(db, 'reviews');
     const productsRef = collection(db, 'products');
-    const productsSnapshot = await getDocs(query(productsRef, where('sellerId', '==', authUser?.id)));
+    const productsSnapshot = await getDocs(query(productsRef, where('sellerId', '==', authUser.id)));
     const productIds = productsSnapshot.docs.map(doc => doc.id);
     if (productIds.length > 0) {
       const q = query(reviewsRef, where('productId', 'in', productIds), orderBy('createdAt', 'desc'));
@@ -2807,7 +2753,7 @@ const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
       setReviews([]);
       setLoading(prev => ({ ...prev, reviews: false }));
     }
-    return () => {};
+    return () => { };
   }, [authUser, isSeller]);
 
   const calculateStats = useCallback(() => {
@@ -2896,24 +2842,35 @@ const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
     }
   }, [activeTab, products, orders, promotions, reviews, calculateStats]);
 
+
+  // ✅ LE `RETURN` CONDITIONNEL EST MAINTENANT APRÈS LES HOOKS
+  if (loading.profile) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+        <Text style={styles.loadingText}>Chargement du profil...</Text>
+      </SafeAreaView>
+    );
+  }
+
   const handleEditProfile = () => {
     setEditProfileModalVisible(true);
   };
 
   const handleSaveProfile = async (newProfile: { photoUrl?: string | null; phoneNumber?: string | null }) => {
-  if (!authUser?.id) return;
-  setLoading(prev => ({ ...prev, profileEdit: true }));
-  try {
-    await updateDoc(doc(db, 'users', authUser.id), newProfile);
-    Alert.alert('Succès', 'Profil mis à jour avec succès !');
-    setEditProfileModalVisible(false);
-  } catch (e) {
-    console.error("Error updating profile: ", e);
-    Alert.alert('Erreur', 'Impossible de mettre à jour le profil.');
-  } finally {
-    setLoading(prev => ({ ...prev, profileEdit: false }));
-  }
-};
+    if (!authUser?.id) return;
+    setLoading(prev => ({ ...prev, profileEdit: true }));
+    try {
+      await updateDoc(doc(db, 'users', authUser.id), newProfile);
+      Alert.alert('Succès', 'Profil mis à jour avec succès !');
+      setEditProfileModalVisible(false);
+    } catch (e) {
+      console.error("Error updating profile: ", e);
+      Alert.alert('Erreur', 'Impossible de mettre à jour le profil.');
+    } finally {
+      setLoading(prev => ({ ...prev, profileEdit: false }));
+    }
+  };
   const handleDeleteAccount = () => {
     setConfirmationModal({
       visible: true,
@@ -2921,7 +2878,6 @@ const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
       message: 'Êtes-vous sûr de vouloir supprimer votre compte ? Cette action est irréversible.',
       onConfirm: async () => {
         setConfirmationModal({ ...confirmationModal, visible: false });
-        // Logique de suppression du compte ici
         Alert.alert('Info', 'Fonctionnalité de suppression de compte non implémentée.');
       },
     });
@@ -2940,121 +2896,94 @@ const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
     });
   };
 
-
-
-
-
-/* Annuler : on supprime la demande et on remet tout à zéro */
-const handleCancelRequest = () => {
-  Alert.alert(
-    'Annuler la demande',
-    'Êtes-vous sûr de vouloir annuler votre demande de vendeur ?',
-    [
-      { text: 'Non', style: 'cancel' },
-      {
-        text: 'Oui',
-        style: 'destructive',
-        onPress: async () => {
-          if (!authUser?.id) return;
-          try {
-            // 1. Supprimer la demande Firestore (si elle existe)
-            if (userProfile?.sellerRequestId) {
-              await deleteDoc(doc(db, 'sellerRequests', userProfile.sellerRequestId));
+  const handleCancelRequest = () => {
+    Alert.alert(
+      'Annuler la demande',
+      'Êtes-vous sûr de vouloir annuler votre demande de vendeur ?',
+      [
+        { text: 'Non', style: 'cancel' },
+        {
+          text: 'Oui',
+          style: 'destructive',
+          onPress: async () => {
+            if (!authUser?.id) return;
+            try {
+              if (userProfile?.sellerRequestId) {
+                await deleteDoc(doc(db, 'sellerRequests', userProfile.sellerRequestId));
+              }
+              await updateDoc(doc(db, 'users', authUser.id), {
+                isSellerRequested: false,
+                sellerRequestId: null,
+                sellerForm: null,
+                paymentStatus: 'idle',
+                depositStatus: 'NOT_REQUIRED',
+              });
+              Alert.alert('Succès', 'Votre demande a été annulée.');
+            } catch (e) {
+              console.error('Erreur annulation : ', e);
+              Alert.alert('Erreur', 'Impossible d’annuler la demande.');
             }
-            // 2. Remettre le profil à l’état initial
-            await updateDoc(doc(db, 'users', authUser.id), {
-              isSellerRequested: false,
-              sellerRequestId: null,
-              sellerForm: null,
-              paymentStatus: 'idle',
-              depositStatus: 'NOT_REQUIRED',
-            });
-            Alert.alert('Succès', 'Votre demande a été annulée.');
-          } catch (e) {
-            console.error('Erreur annulation : ', e);
-            Alert.alert('Erreur', 'Impossible d’annuler la demande.');
-          }
+          },
         },
-      },
-    ]
-  );
-};
-
-
-
-
-
+      ]
+    );
+  };
 
   const handleManualConfirmation = async (confirmationCode: string, smsMessage: string) => {
-  if (!authUser?.id) {
-    Alert.alert("Erreur", "Utilisateur non authentifié");
-    return;
-  }
+    if (!authUser?.id) {
+      Alert.alert("Erreur", "Utilisateur non authentifié");
+      return;
+    }
 
-  setLoading(prev => ({ ...prev, sellerForm: true }));
-  try {
-    await addDoc(collection(db, 'manual-confirm'), {
-      transactionId: confirmationCode?.trim() || "",     // si vide → ""
-      confirmationMessage: smsMessage?.trim() || "",     // si vide → ""
-      operatorId: authUser.id,
-      userEmail: authUser.email || "",
-      userName: authUser.email || "",
-      userPhone: authUser.phoneNumber || "",
-      status: "pending",                                // par défaut
-      createdAt: serverTimestamp(),
-    });
+    setLoading(prev => ({ ...prev, sellerForm: true }));
+    try {
+      await addDoc(collection(db, 'manual-confirm'), {
+        transactionId: confirmationCode?.trim() || "",
+        confirmationMessage: smsMessage?.trim() || "",
+        operatorId: authUser.id,
+        userEmail: authUser.email || "",
+        userName: authUser.email || "",
+        userPhone: authUser.phoneNumber || "",
+        status: "pending",
+        createdAt: serverTimestamp(),
+      });
 
-    Alert.alert('Succès', 'Le message de confirmation a été envoyé.');
-    setManualConfirmationModal(false);
-  } catch (error) {
-    console.error("Erreur lors de l'envoi de la confirmation manuelle: ", error);
-    Alert.alert("Erreur", "Impossible d'envoyer le message de confirmation.");
-  } finally {
-    setLoading(prev => ({ ...prev, sellerForm: false }));
-  }
-};
+      Alert.alert('Succès', 'Le message de confirmation a été envoyé.');
+      setManualConfirmationModal(false);
+    } catch (error) {
+      console.error("Erreur lors de l'envoi de la confirmation manuelle: ", error);
+      Alert.alert("Erreur", "Impossible d'envoyer le message de confirmation.");
+    } finally {
+      setLoading(prev => ({ ...prev, sellerForm: false }));
+    }
+  };
 
+  const handleSellerFormSubmit = async () => {
+    if (!authUser?.id) return;
+    setLoading(prev => ({ ...prev, sellerForm: true }));
 
+    try {
+      const requestRef = await addDoc(collection(db, 'sellerRequests'), {
+        ...sellerForm,
+        userId: authUser.id,
+        status: 'pending',
+        requestedAt: serverTimestamp(),
+      });
 
+      await updateDoc(doc(db, 'users', authUser.id), {
+        isSellerRequested: true,
+        sellerForm,
+        sellerRequestId: requestRef.id,
+      });
 
+      router.push(`/subs?phone=${sellerForm.phoneNumber}&provider=${sellerForm.idType}&amount=${subscriptionPrice}&userId=${authUser.id}`);
 
-
-
-
-
-const handleSellerFormSubmit = async () => {
-  if (!authUser?.id) return;
-  setLoading(prev => ({ ...prev, sellerForm: true }));
-  
-  try {
-    const requestRef = await addDoc(collection(db, 'sellerRequests'), {
-      ...sellerForm,
-      userId: authUser.id,
-      status: 'pending',
-      requestedAt: serverTimestamp(),
-    });
-    
-    await updateDoc(doc(db, 'users', authUser.id), {
-      isSellerRequested: true,
-      sellerForm,
-      sellerRequestId: requestRef.id,
-    });
-
-    router.push(`/subs?phone=${sellerForm.phoneNumber}&provider=${sellerForm.idType}&amount=${subscriptionPrice}&userId=${authUser.id}`);
-    
-  } catch (e) {
-    console.error("Error submitting seller form: ", e);
-    Alert.alert('Erreur', 'Impossible de soumettre le formulaire.');
-  } finally {
-    setLoading(prev => ({ ...prev, sellerForm: false }));
-    setSellerFormModalVisible(false);
-  }
-};
-
-  const handleRestartPayment = () => {
-    if (authUser?.id) {
-      updateDoc(doc(db, 'users', authUser.id), { paymentStatus: 'idle' });
-      setUserProfile(prev => prev ? { ...prev, paymentStatus: 'idle' } : prev);
+    } catch (e) {
+      console.error("Error submitting seller form: ", e);
+      Alert.alert('Erreur', 'Impossible de soumettre le formulaire.');
+    } finally {
+      setLoading(prev => ({ ...prev, sellerForm: false }));
+      setSellerFormModalVisible(false);
     }
   };
 
@@ -3181,117 +3110,119 @@ const handleSellerFormSubmit = async () => {
   };
 
   const renderTabContent = () => {
-  switch (activeTab) {
-    case 'profile':
-      return (
-        <ScrollView style={styles.tabContentContainer}>
-          <View style={styles.sellerProfileContainer}>
-            {userProfile?.isSellerRequested && !userProfile.isSellerVerified ? (
-              <>
-                <Ionicons name="hourglass-outline" size={80} color="#FFC107" style={styles.sellerStatusIcon} />
-                <Text style={styles.sellerStatusTitle}>Demande en cours</Text>
-                <TouchableOpacity 
-                  style={[styles.requestSellerButton, { marginTop: 10, backgroundColor: '#FFA500' }]} 
-                  onPress={() => setManualConfirmationModal(true)}
-                >
-                  <Ionicons name="checkmark-circle-outline" size={24} color="#fff" />
-                  <Text style={styles.requestSellerButtonText}>Confirmer manuellement</Text>
-                </TouchableOpacity>
+    const ProfileTabContent = () => (
+      <ScrollView style={styles.tabContentContainer}>
+        <View style={styles.sellerProfileContainer}>
+          {userProfile?.isSellerRequested && !userProfile.isSellerVerified ? (
+            <>
+              <Ionicons name="hourglass-outline" size={80} color="#FFC107" style={styles.sellerStatusIcon} />
+              <Text style={styles.sellerStatusTitle}>Demande en cours</Text>
+              <TouchableOpacity
+                style={[styles.requestSellerButton, { marginTop: 10, backgroundColor: '#FFA500' }]}
+                onPress={() => setManualConfirmationModal(true)}
+              >
+                <Ionicons name="checkmark-circle-outline" size={24} color="#fff" />
+                <Text style={styles.requestSellerButtonText}>Confirmer manuellement</Text>
+              </TouchableOpacity>
 
+              <TouchableOpacity
+                style={[styles.requestSellerButton, { backgroundColor: '#007AFF', marginTop: 10 }]}
+                onPress={() => router.push('/subs')}
+              >
+                <Ionicons name="refresh" size={24} color="#fff" />
+                <Text style={styles.requestSellerButtonText}>Recommencer le paiement</Text>
+              </TouchableOpacity>
+
+              <View style={{ flexDirection: 'row', marginTop: 12, gap: 10 }}>
                 <TouchableOpacity
-                  style={[styles.requestSellerButton, { backgroundColor: '#007AFF', marginTop: 10 }]}
-                  onPress={() => router.push('/subs')}
+                  style={[styles.requestSellerButton, { backgroundColor: '#FF6347', flex: 1 }]}
+                  onPress={handleCancelRequest}
                 >
-                  <Ionicons name="refresh" size={24} color="#fff" />
-                  <Text style={styles.requestSellerButtonText}>Recommencer le paiement</Text>
+                  <Ionicons name="close" size={24} color="#fff" />
+                  <Text style={styles.requestSellerButtonText}>Annuler</Text>
                 </TouchableOpacity>
-                
-                {/* ✅ AJOUTE CES DEUX BOUTONS */}
-    <View style={{ flexDirection: 'row', marginTop: 12, gap: 10 }}>
-     
-
-      <TouchableOpacity
-        style={[styles.requestSellerButton, { backgroundColor: '#FF6347', flex: 1 }]}
-        onPress={handleCancelRequest}
-      >
-        <Ionicons name="close" size={24} color="#fff" />
-        <Text style={styles.requestSellerButtonText}>Annuler</Text>
-      </TouchableOpacity>
-    </View>
-                <Text style={styles.sellerStatusText}>
-                  Votre demande pour devenir vendeur est en cours de traitement.
-                  {userProfile.paymentStatus === 'pending' && (
-                    "\nPaiement en cours de validation..."
-                  )}
-                </Text>
-              </>
-            ) : userProfile?.isSellerVerified ? (
-              <View style={{ alignItems: 'center', marginTop: 40 }}>
-                <Ionicons name="checkmark-circle" size={80} color="#28A745" style={styles.sellerStatusIcon} />
-                <Text style={styles.sellerStatusTitle}>Vous êtes vendeur vérifié !</Text>
-                <Text style={styles.sellerStatusText}>
-                  Accédez à vos outils de gestion via les onglets ci-dessus.
-                </Text>
               </View>
-            ) : (
-              <>
-                <Ionicons name="business-outline" size={80} color="#6C63FF" style={styles.sellerStatusIcon} />
-                <Text style={styles.sellerStatusTitle}>Devenir Vendeur</Text>
-                <Text style={styles.sellerStatusText}>
-                  Montez en grade et vendez vos produits sur notre plateforme. Remplissez le formulaire et payez l'abonnement pour commencer.
-                </Text>
-                <TouchableOpacity style={styles.requestSellerButton} onPress={() => setSellerFormModalVisible(true)}>
-                  <Ionicons name="arrow-forward" size={24} color="#fff" />
-                  <Text style={styles.requestSellerButtonText}>Devenir Vendeur</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-        </ScrollView>
-      );
-      
-      
-      case 'orders':
-        return <OrdersTab orders={orders} onSelectOrder={handleOrderSelect} loading={loading.orders} />;
-      case 'products':
-        return <ProductsTab products={products} onAddProduct={handleAddProduct} onEditProduct={handleEditProduct} onDeleteProduct={handleDeleteProduct} loading={loading.products} />;
-      case 'stats':
-        return <StatsTab stats={stats} loading={loading.orders || loading.products || loading.promotions || loading.reviews} />;
-      case 'activity':
-        return <ActivityTab activities={activities} loading={loading.activity} />;
-      case 'settings':
-        return <SettingsTab
-          onLogout={handleLogout}
-          onDeleteAccount={handleDeleteAccount}
-          userProfile={userProfile}
-          updateProfileSettings={async (settings) => {
-            if (authUser?.id) {
-              await updateDoc(doc(db, 'users', authUser.id), settings);
-              setUserProfile(prev => prev ? { ...prev, ...settings } : null);
-            }
-          }}
-          onChangePassword={() => Alert.alert('Fonction non disponible', 'La modification du mot de passe n\'est pas encore implémentée.')}
-          onManageAddresses={() => Alert.alert('Fonction non disponible', 'La gestion des adresses n\'est pas encore implémentée.')}
-          onEditProfile={handleEditProfile}
-          onOpenReportModal={handleOpenReportModal}
-        />;
-      case 'promotions':
-        return <PromotionsTab promotions={promotions} onAddPromotion={handleAddPromotion} onTogglePromotion={handleTogglePromotion} onDeletePromotion={handleDeletePromotion} loading={loading.promotions} />;
-      case 'reviews':
-        return <ReviewsTab reviews={reviews} loading={loading.reviews} />;
-      default:
-        return null;
-    }
-  };
-
-  if (loading.profile) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6C63FF" />
-        <Text style={styles.loadingText}>Chargement du profil...</Text>
-      </View>
+              <Text style={styles.sellerStatusText}>
+                Votre demande pour devenir vendeur est en cours de traitement.
+                {userProfile.paymentStatus === 'pending' && (
+                  "\nPaiement en cours de validation..."
+                )}
+              </Text>
+            </>
+          ) : userProfile?.isSellerVerified ? (
+            <View style={{ alignItems: 'center', marginTop: 40 }}>
+              <Ionicons name="checkmark-circle" size={80} color="#28A745" style={styles.sellerStatusIcon} />
+              <Text style={styles.sellerStatusTitle}>Vous êtes vendeur vérifié !</Text>
+              <Text style={styles.sellerStatusText}>
+                Accédez à vos outils de gestion via les onglets ci-dessus.
+              </Text>
+            </View>
+          ) : (
+            <>
+              <Ionicons name="business-outline" size={80} color="#6C63FF" style={styles.sellerStatusIcon} />
+              <Text style={styles.sellerStatusTitle}>Devenir Vendeur</Text>
+              <Text style={styles.sellerStatusText}>
+                Montez en grade et vendez vos produits sur notre plateforme. Remplissez le formulaire et payez l'abonnement pour commencer.
+              </Text>
+              <TouchableOpacity style={styles.requestSellerButton} onPress={() => setSellerFormModalVisible(true)}>
+                <Ionicons name="arrow-forward" size={24} color="#fff" />
+                <Text style={styles.requestSellerButtonText}>Devenir Vendeur</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </ScrollView>
     );
-  }
+
+    return (
+      <>
+        <View style={{ display: activeTab === 'profile' ? 'flex' : 'none', flex: 1 }}>
+          <ProfileTabContent />
+        </View>
+
+        {isSeller && (
+          <>
+            <View style={{ display: activeTab === 'orders' ? 'flex' : 'none', flex: 1 }}>
+              <OrdersTab orders={orders} onSelectOrder={handleOrderSelect} loading={loading.orders} />
+            </View>
+            <View style={{ display: activeTab === 'products' ? 'flex' : 'none', flex: 1 }}>
+              <ProductsTab products={products} onAddProduct={handleAddProduct} onEditProduct={handleEditProduct} onDeleteProduct={handleDeleteProduct} loading={loading.products} />
+            </View>
+            <View style={{ display: activeTab === 'stats' ? 'flex' : 'none', flex: 1 }}>
+              <StatsTab stats={stats} loading={loading.orders || loading.products || loading.promotions || loading.reviews} />
+            </View>
+            <View style={{ display: activeTab === 'promotions' ? 'flex' : 'none', flex: 1 }}>
+              <PromotionsTab promotions={promotions} onAddPromotion={handleAddPromotion} onTogglePromotion={handleTogglePromotion} onDeletePromotion={handleDeletePromotion} loading={loading.promotions} />
+            </View>
+            <View style={{ display: activeTab === 'reviews' ? 'flex' : 'none', flex: 1 }}>
+              <ReviewsTab reviews={reviews} loading={loading.reviews} />
+            </View>
+          </>
+        )}
+
+        <View style={{ display: activeTab === 'activity' ? 'flex' : 'none', flex: 1 }}>
+          <ActivityTab activities={activities} loading={loading.activity} />
+        </View>
+        <View style={{ display: activeTab === 'settings' ? 'flex' : 'none', flex: 1 }}>
+          <SettingsTab
+            onLogout={handleLogout}
+            onDeleteAccount={handleDeleteAccount}
+            userProfile={userProfile}
+            updateProfileSettings={async (settings) => {
+              if (authUser?.id) {
+                await updateDoc(doc(db, 'users', authUser.id), settings);
+                setUserProfile(prev => prev ? { ...prev, ...settings } : null);
+              }
+            }}
+            onChangePassword={() => Alert.alert('Fonction non disponible', 'La modification du mot de passe n\'est pas encore implémentée.')}
+            onManageAddresses={() => Alert.alert('Fonction non disponible', 'La gestion des adresses n\'est pas encore implémentée.')}
+            onEditProfile={handleEditProfile}
+            onOpenReportModal={handleOpenReportModal}
+          />
+        </View>
+      </>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -3299,16 +3230,16 @@ const handleSellerFormSubmit = async () => {
         <View style={styles.header}>
           <View style={styles.avatarContainer}>
             {userProfile?.photoUrl ? (
-  <Image source={{ uri: userProfile.photoUrl }} style={styles.avatar} />
-) : (
-  <View style={styles.avatarPlaceholder}>
-    <Ionicons name="person" size={60} color="#ccc" />
-  </View>
-)}
+              <Image source={{ uri: userProfile.photoUrl }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Ionicons name="person" size={60} color="#ccc" />
+              </View>
+            )}
           </View>
           <View style={styles.userInfo}>
             <Text style={styles.userName}>{userProfile?.name || 'Utilisateur'}</Text>
-            
+
             <Text style={styles.userEmail}>{userProfile?.email}</Text>
           </View>
           <TouchableOpacity style={styles.editProfileButton} onPress={handleEditProfile}>
@@ -3350,14 +3281,14 @@ const handleSellerFormSubmit = async () => {
         {renderTabContent()}
 
         <SellerFormModal
-  visible={sellerFormModalVisible}
-  onClose={() => setSellerFormModalVisible(false)}
-  sellerForm={sellerForm}
-  setSellerForm={setSellerForm}
-  onSubmitForm={handleSellerFormSubmit}
-  loading={loading.sellerForm}
-  subscriptionPrice={subscriptionPrice}
-/>
+          visible={sellerFormModalVisible}
+          onClose={() => setSellerFormModalVisible(false)}
+          sellerForm={sellerForm}
+          setSellerForm={setSellerForm}
+          onSubmitForm={handleSellerFormSubmit}
+          loading={loading.sellerForm}
+          subscriptionPrice={subscriptionPrice}
+        />
         <ProductModal
           visible={productModalVisible}
           onClose={() => setProductModalVisible(false)}
@@ -3365,7 +3296,6 @@ const handleSellerFormSubmit = async () => {
           sellerId={authUser?.id || ''}
           onProductSaved={() => {
             setProductModalVisible(false);
-            setProducts([]); // Trigger reload
           }}
         />
         <OrderModal
@@ -3388,14 +3318,14 @@ const handleSellerFormSubmit = async () => {
           onSubmit={handleReportSubmit}
           loading={loading.reports}
         />
-       
-<ManualConfirmationModal
-  visible={manualConfirmationModal}
-  onClose={() => setManualConfirmationModal(false)}
-  onConfirm={handleManualConfirmation}
-  loading={loading.sellerForm}
-  authUser={authUser} // Ajoutez cette ligne
-/> 
+
+        <ManualConfirmationModal
+          visible={manualConfirmationModal}
+          onClose={() => setManualConfirmationModal(false)}
+          onConfirm={handleManualConfirmation}
+          loading={loading.sellerForm}
+          authUser={authUser}
+        />
 
         <ConfirmationModal
           visible={confirmationModal.visible}

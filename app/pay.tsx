@@ -412,7 +412,7 @@ const orderRef = doc(db, 'orders', orderId);
 const handleNavChange = (nav: any) => {
   const { url } = nav;
   if (url.includes('yass-webhook.israelntalu328.workers.dev/payment-return')) {
-    const id = new URL(url).searchParams.get('depositId');
+    const id = Crypto.randomUUID();
     if (id) {
       setDepositId(id);       
       setWebModalVisible(false);

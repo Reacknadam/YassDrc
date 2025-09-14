@@ -2,6 +2,7 @@
 import { useAuth } from '@/context/AuthContext';
 import { db } from '@/firebase/config';
 import { router } from 'expo-router';
+import * as Crypto from 'expo-crypto';
 import { addDoc, getDoc, collection, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -52,7 +53,7 @@ export default function SubscribeScreen() {
   const handleNavChange = (nav: WebViewNavigation) => {
     const { url } = nav;
     if (url.includes(`${WORKER_ROOT}/payment-return`)) {
-      const id = new URL(url).searchParams.get('depositId');
+      const id = Crypto.randomUUID();
       if (id) {
         setDepositId(id);
         setVisible(false);

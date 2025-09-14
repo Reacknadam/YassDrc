@@ -10,6 +10,7 @@ export interface Product {
   images: string[];
   sellerId: string;
   sellerName: string;
+  sellerPhotoUrl?: string;
   isSellerVerified?: boolean;
   createdAt: FieldValue;
   category?: string;
@@ -33,12 +34,14 @@ export interface CartItem extends Product {
   quantity: number;
 }
 
-export interface SellerInfo {
-  id: string; // Ajouté l'ID du vendeur
+export type SellerInfo = {
+  email: string;
   name: string;
-  isVerified?: boolean;
-  // Ajoutez d'autres propriétés du vendeur si nécessaire
-}
+  photoUrl?: string | null;
+  phoneNumber?: string;
+  shopName?: string;
+  isVerified: boolean;
+};
 
 export interface UserType { // Étendue avec les propriétés utilisées dans home.tsx
   uid: string; // L'ID utilisateur est essentiel
