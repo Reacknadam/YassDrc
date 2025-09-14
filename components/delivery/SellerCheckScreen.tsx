@@ -1,10 +1,9 @@
 import { useAuth } from '@/context/AuthContext';
 import { db, storage } from '@/firebase/config';
+import { useAppState } from '@/hooks/useAppState';
+import { useLiveLocation } from '@/hooks/useLiveLocation';
 import { Ionicons } from '@expo/vector-icons';
-import * as Battery from 'expo-battery';
 import * as ImagePicker from 'expo-image-picker';
-import * as Location from 'expo-location';
-import * as Network from 'expo-network';
 import {
     addDoc,
     collection,
@@ -35,12 +34,13 @@ import {
     StatusBar,
     StyleSheet,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
 import uuid from 'react-native-uuid';
 import { WebView } from 'react-native-webview';
+import ConnectionStatusBar from './ConnectionStatusBar';
+import DriverModal from './DriverModal';
 import OrderCard, {
     DeliveryMethod,
     Driver,
@@ -48,6 +48,9 @@ import OrderCard, {
     Order,
     OrderStatus,
 } from './OrderCard';
+import PaymentModal from './PaymentModal';
+import SignatureModal from './SignatureModal';
+
 // Conditional import for react-native-maps
 let MapView: any;
 let Marker: any;
@@ -69,450 +72,7 @@ if (Platform.OS !== 'web') {
   PROVIDER_GOOGLE = null;
 }
 
-const { width, height } = Dimensions.get('window');
-
-// Types
-interface PaymentWorkerResponse {
-  status: 'SUCCESS' | 'FAILURE' | 'PENDING';
-  amount: number;
-  currency: 'CDF';
-  transactionId?: string;
-}
-
-interface AppState {
-  isOnline: boolean | null;
-  batteryLevel: number;
-  isBatteryLow: boolean;
-}
-
-const WORKER_URL = 'https://yass-webhook.israelntalu328.workers.dev';
-const API_RETRY_COUNT = 3;
-const RETRY_INTERVAL_MS = 3000;
-const LOW_BATTERY_THRESHOLD = 0.2;
-
-// Utility functions
-const handleError = (error: unknown, message: string, userMessage?: string) => {
-  console.error(message, error);
-  Alert.alert('Erreur', userMessage || message);
-};
-
-const retryFetch = async <T,>(
-  url: string,
-  options?: RequestInit,
-  retries = API_RETRY_COUNT
-): Promise<T> => {
-  try {
-    const response = await fetch(url, options);
-    if (!response.ok) {
-      if (response.status >= 500 && retries > 0) {
-        await new Promise(resolve => setTimeout(resolve, RETRY_INTERVAL_MS));
-        return retryFetch(url, options, retries - 1);
-      }
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
-    }
-    return response.json() as Promise<T>;
-  } catch (error) {
-    if (retries > 0) {
-      await new Promise(resolve => setTimeout(resolve, RETRY_INTERVAL_MS));
-      return retryFetch(url, options, retries - 1);
-    }
-    throw error;
-  }
-};
-
-// Custom Hooks
-const useLiveLocation = (enabled: boolean = true) => {
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [permissionStatus, setPermissionStatus] = useState<Location.PermissionStatus | null>(null);
-  const subscriptionRef = useRef<Location.LocationSubscription | null>(null);
-
-  useEffect(() => {
-    if (!enabled) return;
-
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        setPermissionStatus(status);
-
-        if (status !== 'granted') {
-          setError('Permission de localisation refusée');
-          return;
-        }
-
-        const currentLocation = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-        setLocation(currentLocation);
-
-        subscriptionRef.current = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.High,
-            timeInterval: 5000,
-            distanceInterval: 10,
-          },
-          newLocation => {
-            setLocation(newLocation);
-          }
-        );
-      } catch (err) {
-        setError("Impossible d'accéder à la localisation");
-        console.error('Location error:', err);
-      }
-    })();
-
-    return () => {
-      if (subscriptionRef.current) {
-        subscriptionRef.current.remove();
-      }
-    };
-  }, [enabled]);
-
-  return { location, error, permissionStatus };
-};
-
-const useAppState = (): AppState => {
-  const [appState, setAppState] = useState<AppState>({
-    isOnline: null,
-    batteryLevel: 1,
-    isBatteryLow: false,
-  });
-
-  useEffect(() => {
-    const checkNetwork = async () => {
-      const networkState = await Network.getNetworkStateAsync();
-      setAppState(prev => ({
-        ...prev,
-        isOnline: (networkState.isConnected && networkState.isInternetReachable) ?? false,
-      }));
-    };
-
-    const checkBattery = async () => {
-      const batteryLevel = await Battery.getBatteryLevelAsync();
-      setAppState(prev => ({
-        ...prev,
-        batteryLevel,
-        isBatteryLow: batteryLevel < LOW_BATTERY_THRESHOLD,
-      }));
-    };
-
-    checkNetwork();
-    checkBattery();
-
-    const networkSubscription = Network.addNetworkStateListener(checkNetwork);
-    const batterySubscription = Battery.addBatteryLevelListener(({ batteryLevel }) => {
-      setAppState(prev => ({
-        ...prev,
-        batteryLevel,
-        isBatteryLow: batteryLevel < LOW_BATTERY_THRESHOLD,
-      }));
-    });
-
-    return () => {
-      networkSubscription.remove();
-      batterySubscription.remove();
-    };
-  }, []);
-
-  return appState;
-};
-
-// Components
-const PaymentModal: React.FC<{
-  visible: boolean;
-  onClose: () => void;
-  order: Order;
-  onPaymentSuccess: () => void;
-  onPaymentFailure: (error: string) => void;
-}> = ({ visible, onClose, order, onPaymentSuccess, onPaymentFailure }) => {
-  const [htmlContent, setHtmlContent] = useState<string>('');
-  const [isLoading, setIsLoading] = useState(true);
-  const pollRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (!visible || !order.sellerDepositId) return;
-
-    const initializePayment = async () => {
-      setIsLoading(true);
-      try {
-        const response = await retryFetch<{ html: string }>(
-          `${WORKER_URL}/payment-page?amount=1500&currency=CDF`
-        );
-
-        setHtmlContent(response.html);
-      } catch (error) {
-        handleError(
-          error,
-          'Payment initialization failed',
-          "Impossible d'initialiser le paiement. Veuillez réessayer."
-        );
-        onClose();
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    initializePayment();
-  }, [visible, order]);
-
-  useEffect(() => {
-    if (!visible || !order.sellerDepositId) return;
-
-    const pollPaymentStatus = async (attempts: number = API_RETRY_COUNT) => {
-      try {
-        const result = await retryFetch<PaymentWorkerResponse>(
-          `${WORKER_URL}/check-payment/${order.sellerDepositId}`
-        );
-
-        if (result.status === 'SUCCESS') {
-          onPaymentSuccess();
-          onClose();
-          return;
-        } else if (result.status === 'FAILURE') {
-          onPaymentFailure('Le paiement a échoué');
-          onClose();
-          return;
-        }
-
-        if (attempts > 0) {
-          pollRef.current = setTimeout(
-            () => pollPaymentStatus(attempts - 1),
-            5000
-          ) as unknown as number;
-        } else {
-          onPaymentFailure('Temps de paiement dépassé');
-          onClose();
-        }
-      } catch (error) {
-        console.error('Payment polling error:', error);
-        if (attempts > 0) {
-          pollRef.current = setTimeout(
-            () => pollPaymentStatus(attempts - 1),
-            5000
-          ) as unknown as number;
-        } else {
-          onPaymentFailure('Erreur de vérification du paiement');
-          onClose();
-        }
-      }
-    };
-
-    pollPaymentStatus();
-
-    return () => {
-      if (pollRef.current) {
-        clearTimeout(pollRef.current);
-      }
-    };
-  }, [visible, order, onPaymentSuccess, onPaymentFailure, onClose]);
-
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      onRequestClose={onClose}
-      statusBarTranslucent={true}
-    >
-      <SafeAreaView style={styles.modalContainer}>
-        <View style={styles.modalHeader}>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Ionicons name="close" size={28} color="#64748B" />
-          </TouchableOpacity>
-          <Text style={styles.modalTitle}>Paiement de la course</Text>
-          <View style={{ width: 28 }} />
-        </View>
-
-        {isLoading ? (
-          <View style={styles.paymentLoadingContainer}>
-            <ActivityIndicator size="large" color="#4F46E5" />
-            <Text style={styles.paymentLoadingText}>Préparation du paiement...</Text>
-          </View>
-        ) : (
-          <WebView
-            source={{ html: htmlContent }}
-            style={styles.webview}
-            startInLoadingState={true}
-            renderLoading={() => (
-              <View style={styles.paymentLoadingContainer}>
-                <ActivityIndicator size="large" color="#4F46E5" />
-                <Text style={styles.paymentLoadingText}>Chargement de la page de paiement...</Text>
-              </View>
-            )}
-            onError={syntheticEvent => {
-              const { nativeEvent } = syntheticEvent;
-              console.error('WebView error: ', nativeEvent);
-              handleError(
-                nativeEvent,
-                'WebView error',
-                'Erreur de chargement de la page de paiement'
-              );
-            }}
-          />
-        )}
-      </SafeAreaView>
-    </Modal>
-  );
-};
-
-const SignatureModal: React.FC<{
-  visible: boolean;
-  onClose: () => void;
-  onSave: (signature: string) => void;
-}> = ({ visible, onClose, onSave }) => {
-  const [signature, setSignature] = useState('');
-
-  const handleSave = () => {
-    if (signature.trim().length < 2) {
-      Alert.alert('Signature invalide', 'Veuillez entrer une signature valide');
-      return;
-    }
-    onSave(signature);
-    setSignature('');
-  };
-
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      onRequestClose={onClose}
-      transparent={true}
-    >
-      <View style={styles.signatureModalContainer}>
-        <View style={styles.signatureModalContent}>
-          <View style={styles.signatureModalHeader}>
-            <Text style={styles.signatureModalTitle}>Signature du client</Text>
-            <TouchableOpacity onPress={onClose} style={styles.signatureCloseButton}>
-              <Ionicons name="close" size={24} color="#64748B" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.signatureInputContainer}>
-            <Text style={styles.signatureLabel}>
-              Veuillez demander au client de signer ci-dessous :
-            </Text>
-            <TextInput
-              style={styles.signatureInput}
-              value={signature}
-              onChangeText={setSignature}
-              placeholder="Nom du client"
-              placeholderTextColor="#94A3B8"
-              autoFocus={true}
-            />
-          </View>
-
-          <View style={styles.signatureActions}>
-            <TouchableOpacity
-              style={[styles.signatureButton, styles.signatureCancelButton]}
-              onPress={onClose}
-            >
-              <Text style={styles.signatureCancelText}>Annuler</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.signatureButton, styles.signatureSaveButton]}
-              onPress={handleSave}
-            >
-              <Text style={styles.signatureSaveText}>Enregistrer</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-};
-
-const DriverModal: React.FC<{
-  visible: boolean;
-  onClose: () => void;
-  drivers: Driver[];
-  onAssignDriver: (driver: Driver) => void;
-  onFocusDriver: (driver: Driver) => void;
-}> = ({ visible, onClose, drivers, onAssignDriver, onFocusDriver }) => {
-  return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent={true}>
-      <View style={styles.driverModalContainer}>
-        <View style={styles.driverModalContent}>
-          <View style={styles.driverModalHeader}>
-            <Text style={styles.driverModalTitle}>Livreurs disponibles</Text>
-            <TouchableOpacity onPress={onClose} style={styles.driverCloseButton}>
-              <Ionicons name="close" size={24} color="#64748B" />
-            </TouchableOpacity>
-          </View>
-
-          {drivers.length === 0 ? (
-            <View style={styles.noDriversContainer}>
-              <Ionicons name="car-outline" size={48} color="#CBD5E1" />
-              <Text style={styles.noDriversText}>Aucun livreur disponible</Text>
-              <Text style={styles.noDriversSubtext}>
-                Aucun livreur n'est actuellement disponible dans votre zone.
-              </Text>
-            </View>
-          ) : (
-            <FlatList
-              data={drivers}
-              keyExtractor={item => item.id}
-              renderItem={({ item }) => (
-                <View style={styles.driverItem}>
-                  <View style={styles.driverInfo}>
-                    <Ionicons name="person-circle" size={40} color="#4F46E5" />
-                    <View style={styles.driverDetails}>
-                      <Text style={styles.driverName}>{item.name}</Text>
-                      <View style={styles.driverDetailRow}>
-                        <Ionicons name="call-outline" size={14} color="#64748B" />
-                        <Text style={styles.driverPhone}>{item.phoneNumber}</Text>
-                      </View>
-                      <View style={styles.driverDetailRow}>
-                        <Ionicons name="navigate-circle-outline" size={14} color="#10B981" />
-                        <Text style={styles.driverDistance}>{item.distance} km de vous</Text>
-                      </View>
-                    </View>
-                  </View>
-                  <View style={styles.driverItemActions}>
-                    <TouchableOpacity
-                      onPress={() => onFocusDriver(item)}
-                      style={styles.focusButton}
-                    >
-                      <Ionicons name="locate-outline" size={20} color="#4F46E5" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.assignButton}
-                      onPress={() => onAssignDriver(item)}
-                    >
-                      <Text style={styles.assignButtonText}>Assigner</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
-            />
-          )}
-        </View>
-      </View>
-    </Modal>
-  );
-};
-
-const ConnectionStatusBar: React.FC<{ isOnline: boolean | null; isBatteryLow: boolean }> = ({
-  isOnline,
-  isBatteryLow,
-}) => {
-  if (isOnline !== false && !isBatteryLow) return null;
-
-  return (
-    <View style={styles.connectionStatusBar}>
-      {isOnline === false && (
-        <View style={styles.statusItem}>
-          <Ionicons name="cloud-offline" size={16} color="#FFF" />
-          <Text style={styles.statusText}>Hors ligne</Text>
-        </View>
-      )}
-      {isBatteryLow && (
-        <View style={styles.statusItem}>
-          <Ionicons name="battery-dead" size={16} color="#FFF" />
-          <Text style={styles.statusText}>Batterie faible</Text>
-        </View>
-      )}
-    </View>
-  );
-};
+const { height } = Dimensions.get('window');
 
 // Main Component
 const SellerCheckScreen: React.FC = () => {
@@ -637,7 +197,8 @@ const SellerCheckScreen: React.FC = () => {
         setRefreshing(false);
       },
       error => {
-        handleError(error, 'Firestore orders error', 'Erreur de chargement des commandes');
+        console.error('Firestore orders error', error)
+        Alert.alert('Erreur', 'Erreur de chargement des commandes');
         setLoading(false);
         setRefreshing(false);
       }
@@ -752,41 +313,6 @@ const SellerCheckScreen: React.FC = () => {
     setPaymentVisible(true);
   };
 
-  const pollDriverPaymentStatus = async (id: string) => {
-    let tries = 0;
-    const max = 20;
-    if (pollRef.current) clearInterval(pollRef.current!);
-
-    pollRef.current = setInterval(async () => {
-      tries++;
-      try {
-        const r = await fetch(`${WORKER_ROOT}/deposit-status?depositId=${id}`);
-        if (!r.ok) throw new Error('Network');
-        const { status } = await r.json();
-        const st = String(status).toUpperCase();
-
-        if (['SUCCESS', 'SUCCESSFUL'].includes(st)) {
-          clearInterval(pollRef.current!);
-          await assignDriverAfterPayment();
-          return;
-        }
-
-        if (['FAILED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'ERROR'].includes(st)) {
-          clearInterval(pollRef.current!);
-          Alert.alert('Paiement échoué', 'Le paiement a été refusé/annulé.');
-          return;
-        }
-      } catch {
-        // ignore
-      }
-
-      if (tries >= max) {
-        clearInterval(pollRef.current!);
-        Alert.alert('⏱ Délai dépassé', 'Paiement non confirmé.');
-      }
-    }, 3000);
-  };
-
   const handleNavChange = (nav: any) => {
     const { url } = nav;
     if (url.includes(`${WORKER_ROOT}/payment-return`)) {
@@ -841,50 +367,6 @@ const SellerCheckScreen: React.FC = () => {
         Alert.alert('⏱ Délai dépassé', 'Paiement non confirmé.');
       }
     }, 3000);
-  };
-
-  const assignDriverAfterPayment = async () => {
-    if (!selectedDriver || !selectedOrder || !authUser?.id) return;
-
-    try {
-      await addDoc(collection(db, 'deliveries'), {
-        orderId: selectedOrder.id,
-        sellerId: authUser.id,
-        sellerName: authUser.email || 'Vendeur',
-        sellerPhone: authUser.phoneNumber || 'N/A',
-        sellerLat: location?.coords.latitude,
-        sellerLng: location?.coords.longitude,
-        driverId: selectedDriver.id,
-        driverName: selectedDriver.name,
-        driverPhone: selectedDriver.phoneNumber,
-        buyerName: selectedOrder.customerName,
-        customerPhone: selectedOrder.customerPhone,
-        address: selectedOrder.deliveryAddress,
-        lat: selectedOrder.deliveryCoordinates.latitude,
-        lng: selectedOrder.deliveryCoordinates.longitude,
-        amountCDF: 2000,
-        sellerDepositId: driverDepositId,
-        status: 'pending',
-        createdAt: serverTimestamp(),
-      });
-
-      await updateDoc(doc(db, 'orders', selectedOrder.id), {
-        status: OrderStatus.PaymentOK,
-        updatedAt: serverTimestamp(),
-      });
-
-      setOrders(prev =>
-        prev.map(order =>
-          order.id === selectedOrder.id ? { ...order, status: OrderStatus.PaymentOK } : order
-        )
-      );
-
-      setDriverModalVisible(false);
-      closeBottomSheet();
-      Alert.alert('Succès', `Le livreur ${selectedDriver.name} a été assigné après paiement.`);
-    } catch (error) {
-      handleError(error, 'Driver assignment after payment failed');
-    }
   };
 
   const handleAppDeliverySelection = useCallback(async () => {
@@ -947,9 +429,9 @@ const SellerCheckScreen: React.FC = () => {
       closeBottomSheet();
       startPayment();
     } catch (e: any) {
-      handleError(e, 'App delivery selection failed', e.message);
+      Alert.alert('Erreur', e.message);
     }
-  }, [selectedOrder, authUser, closeBottomSheet]);
+  }, [selectedOrder, authUser, closeBottomSheet, location]);
 
   const handleSellerDeliverySelection = useCallback(async () => {
     if (!selectedOrder) return;
@@ -972,22 +454,9 @@ const SellerCheckScreen: React.FC = () => {
       closeBottomSheet();
       Alert.alert('Succès', 'Vous allez maintenant livrer cette commande vous-même.');
     } catch (e: any) {
-      handleError(e, 'Seller delivery selection failed', 'Impossible de sélectionner la livraison personnelle.');
+      Alert.alert('Erreur', 'Impossible de sélectionner la livraison personnelle.');
     }
   }, [selectedOrder, closeBottomSheet]);
-
-  const handleAssignDriverWithPayment = useCallback(
-    async (driver: Driver) => {
-      if (!selectedOrder || !authUser?.id) return;
-
-      const depositId = uuid.v4() as string;
-
-      setSelectedDriver(driver);
-      setDriverDepositId(depositId);
-      setPaymentVisible(true);
-    },
-    [selectedOrder, authUser]
-  );
 
   const handleAssignDriver = useCallback(
     async (driver: Driver) => {
@@ -1029,10 +498,10 @@ const SellerCheckScreen: React.FC = () => {
         closeBottomSheet();
         Alert.alert('Succès', `Le livreur ${driver.name} a été assigné à la commande.`);
       } catch (error) {
-        handleError(error, 'Driver assignment failed', "Impossible d'assigner le livreur.");
+        Alert.alert("Erreur", "Impossible d'assigner le livreur.");
       }
     },
-    [selectedOrder, authUser, closeBottomSheet]
+    [selectedOrder, authUser, closeBottomSheet, location]
   );
 
   const handlePaymentSuccess = useCallback(async () => {
@@ -1052,9 +521,8 @@ const SellerCheckScreen: React.FC = () => {
 
       Alert.alert('Paiement confirmé', 'La course est maintenant disponible pour les livreurs.');
     } catch (error) {
-      handleError(
-        error,
-        'Payment success update failed',
+      Alert.alert(
+        'Erreur',
         'Paiement réussi mais erreur de mise à jour. Contactez le support.'
       );
     }
@@ -1066,6 +534,9 @@ const SellerCheckScreen: React.FC = () => {
 
   const handleDeliveryProof = useCallback(async () => {
     if (!selectedOrder || isUploading) return;
+
+    // Import ImagePicker from expo-image-picker at the top of your file:
+    // import * as ImagePicker from 'expo-image-picker';
 
     const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
     if (cameraStatus !== 'granted') {
@@ -1134,9 +605,8 @@ const SellerCheckScreen: React.FC = () => {
             'La preuve de livraison a été enregistrée avec succès.'
           );
         } catch (error) {
-          handleError(
-            error,
-            'Delivery proof upload failed',
+          Alert.alert(
+            'Erreur',
             "Erreur lors de l'enregistrement de la preuve de livraison."
           );
         } finally {
@@ -1144,15 +614,15 @@ const SellerCheckScreen: React.FC = () => {
         }
       };
 
+      // Simulating signature for now
       setTimeout(() => {
         setSignatureModalVisible(false);
         completeDeliveryProof('Signature client');
       }, 2000);
     } catch (error) {
       setIsUploading(false);
-      handleError(
-        error,
-        'Delivery proof process failed',
+      Alert.alert(
+        'Erreur',
         'Erreur lors de la prise de photo. Veuillez réessayer.'
       );
     }
@@ -1166,20 +636,13 @@ const SellerCheckScreen: React.FC = () => {
 
   const getMarkerColor = (status: OrderStatus): string => {
     switch (status) {
-      case OrderStatus.PendingDeliveryChoice:
-        return '#F59E0B'; // Amber
-      case OrderStatus.SellerDelivering:
-        return '#3B82F6'; // Blue
-      case OrderStatus.AppDelivering:
-        return '#8B5CF6'; // Violet
-      case OrderStatus.PaymentOK:
-        return '#10B981'; // Emerald
-      case OrderStatus.Delivered:
-        return '#059669'; // Green
-      case OrderStatus.Cancelled:
-        return '#EF4444'; // Red
-      default:
-        return '#6B7280'; // Gray
+      case OrderStatus.PendingDeliveryChoice: return '#F59E0B'; // Amber
+      case OrderStatus.SellerDelivering: return '#3B82F6'; // Blue
+      case OrderStatus.AppDelivering: return '#8B5CF6'; // Violet
+      case OrderStatus.PaymentOK: return '#10B981'; // Emerald
+      case OrderStatus.Delivered: return '#059669'; // Green
+      case OrderStatus.Cancelled: return '#EF4444'; // Red
+      default: return '#6B7280'; // Gray
     }
   };
 
@@ -1213,6 +676,8 @@ const SellerCheckScreen: React.FC = () => {
 
       {viewMode === 'map' ? (
         <View style={styles.mapContainer}>
+           <Text>La carte est temporairement désactivée pour le débogage.</Text>
+           {/*
           <MapView
             ref={mapRef}
             provider={PROVIDER_GOOGLE}
@@ -1299,6 +764,7 @@ const SellerCheckScreen: React.FC = () => {
               </Marker>
             ))}
           </MapView>
+          */}
         </View>
       ) : (
         <FlatList
@@ -1400,7 +866,7 @@ const SellerCheckScreen: React.FC = () => {
     if (selectedOrder?.status === OrderStatus.PendingDeliveryChoice) {
       // 🔥 Si pas encore payé → demander paiement avant assignation
       setSelectedDriver(driver);
-      setDriverDepositId(uuid.v4());
+      setDriverDepositId(uuid.v4() as string);
       setPaymentVisible(true);
     } else {
       // ✅ Si déjà payé → assigner direct
@@ -1498,19 +964,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 20,
   },
-  connectionStatusBar: {
-    flexDirection: 'row',
-    backgroundColor: '#EF4444',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  statusItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 12,
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1537,6 +990,8 @@ const styles = StyleSheet.create({
   },
   mapContainer: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
   },
 
   driverMapMarker: {
@@ -1664,6 +1119,7 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 12,
     fontWeight: '600',
+    marginLeft: 6,
   },
   customerInfo: {
     flexDirection: 'row',
@@ -1838,210 +1294,6 @@ const styles = StyleSheet.create({
   sheetContent: {
     paddingHorizontal: 20,
     paddingBottom: 40,
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#FFF',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1E293B',
-  },
-  closeButton: {
-    padding: 4,
-  },
-  paymentLoadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
-  },
-  paymentLoadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#64748B',
-    textAlign: 'center',
-  },
-  webview: {
-    flex: 1,
-  },
-  signatureModalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  signatureModalContent: {
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    maxHeight: '50%',
-  },
-  signatureModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  signatureModalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1E293B',
-  },
-  signatureCloseButton: {
-    padding: 4,
-  },
-  signatureInputContainer: {
-    marginBottom: 24,
-  },
-  signatureLabel: {
-    fontSize: 14,
-    color: '#64748B',
-    marginBottom: 12,
-  },
-  signatureInput: {
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    color: '#1E293B',
-  },
-  signatureActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  signatureButton: {
-    flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  signatureCancelButton: {
-    backgroundColor: '#F1F5F9',
-  },
-  signatureCancelText: {
-    color: '#64748B',
-    fontWeight: '600',
-  },
-  signatureSaveButton: {
-    backgroundColor: '#4F46E5',
-  },
-  signatureSaveText: {
-    color: '#FFF',
-    fontWeight: '600',
-  },
-  driverModalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  driverModalContent: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    width: '90%',
-    maxHeight: '80%',
-    padding: 20,
-  },
-  driverModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  driverModalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1E293B',
-  },
-  driverCloseButton: {
-    padding: 4,
-  },
-  noDriversContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-  },
-  noDriversText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#64748B',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  noDriversSubtext: {
-    fontSize: 14,
-    color: '#94A3B8',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  driverItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  driverInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  driverDetails: {
-    marginLeft: 12,
-  },
-  driverName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1E293B',
-  },
-  driverPhone: {
-    fontSize: 14,
-    color: '#64748B',
-  },
-  driverDetailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-    gap: 6,
-  },
-  driverDistance: {
-    fontSize: 13,
-    color: '#10B981',
-    fontWeight: '500',
-  },
-  driverItemActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  assignButton: {
-    backgroundColor: '#4F46E5',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  assignButtonText: {
-    color: '#FFF',
-    fontWeight: '600',
-  },
-  focusButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: '#F1F5F9',
   },
   uploadOverlay: {
     ...StyleSheet.absoluteFillObject,

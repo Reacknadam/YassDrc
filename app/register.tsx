@@ -1,120 +1,53 @@
 import { useAuth } from '@/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Animated,
-  Dimensions,
+  Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 
-const { width, height } = Dimensions.get('window');
-
-export default function Register() {
-  const { register, loading: authLoading, error: authError, setError, authUser } = useAuth();
+export default function RegisterScreen() {
+  const { register, loading: authLoading, error: authError, setError } = useAuth();
   const router = useRouter();
-  const [username, setUsername] = useState('');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [success, setSuccess] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const isEmailValid = useMemo(() => /\S+@\S+\.\S+/.test(email.trim()), [email]);
-  const isNameValid = useMemo(() => username.trim().length >= 2, [username]);
-  const isPasswordValid = useMemo(() => password.trim().length >= 6, [password]);
-  const isConfirmValid = useMemo(() => confirmPassword === password && confirmPassword.length > 0, [confirmPassword, password]);
-  const formValid = isEmailValid && isNameValid && isPasswordValid && isConfirmValid;
-
-  const buttonScale = new Animated.Value(1);
-  const cardTranslateY = new Animated.Value(0);
-
-  // Effacer l'erreur lors du démontage du composant
   useEffect(() => {
     return () => {
       setError(null);
     };
   }, []);
 
-  // Rediriger automatiquement si l'utilisateur est déjà connecté
-  useEffect(() => {
-    if (authUser) {
-      router.replace('/home');
-    }
-  }, [authUser]);
-
   const handleRegister = async () => {
-    setError(null);
-    if (!formValid) {
-      setError("Veuillez renseigner des informations valides (nom ≥ 2, email valide, mot de passe ≥ 6, confirmation identique).");
+    if (!name.trim() || !email.trim() || !password.trim()) {
+      setError("Tous les champs sont requis.");
       return;
     }
-
-    try {
-      const success = await register(username, email, password);
-      if (success) {
-        setSuccess(true);
-        setTimeout(() => {
-          setSuccess(false);
-          router.replace('/home'); // redirection après succès
-        }, 2000);
-      }
-    } catch (err) {
-      console.error("Erreur inattendue:", err);
+    if (password !== confirmPassword) {
+      setError("Les mots de passe ne correspondent pas.");
+      return;
+    }
+    const success = await register(name, email, password);
+    if (success) {
+      Alert.alert("Succès", "Votre compte a été créé. Vous pouvez maintenant vous connecter.");
+      router.replace('/login');
     }
   };
-
-  const handleGoToLogin = () => {
-    router.replace('/login');
-  };
-
-  const handlePressIn = () => {
-    Animated.spring(buttonScale, {
-      toValue: 0.95,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(buttonScale, {
-      toValue: 1,
-      friction: 3,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const floatAnimation = () => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(cardTranslateY, {
-          toValue: -10,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(cardTranslateY, {
-          toValue: 0,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-  };
-
-  useEffect(() => {
-    floatAnimation();
-  }, []);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -122,124 +55,96 @@ export default function Register() {
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <LinearGradient
-          colors={['#6C63FF', '#4F46E5']}
-          style={styles.backgroundGradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
-          <ScrollView contentContainerStyle={styles.scrollContent}>
-            <Animated.View style={[styles.card, { transform: [{ translateY: cardTranslateY }] }]}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.innerContainer}>
+            <View style={styles.header}>
+              <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                <Ionicons name="arrow-back-outline" size={28} color="#111827" />
+              </TouchableOpacity>
               <Text style={styles.title}>Créer un compte</Text>
-              <Text style={styles.subtitle}>Inscrivez-vous pour commencer</Text>
-              
-              {authError && <Text style={styles.errorText}>{authError}</Text>}
-              
-              <View style={styles.inputContainer}>
-                <Ionicons name="person-outline" size={20} color="#8E8E93" style={styles.inputIcon} />
+              <Text style={styles.subtitle}>Rejoignez-nous dès aujourd'hui</Text>
+            </View>
+
+            {authError && (
+              <View style={styles.errorContainer}>
+                <Ionicons name="alert-circle-outline" size={20} color="#E53E3E" />
+                <Text style={styles.errorText}>{authError}</Text>
+              </View>
+            )}
+
+            <View style={styles.form}>
+              <View style={styles.inputGroup}>
+                <Ionicons name="person-outline" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
-                  placeholder="Nom d'utilisateur"
-                  placeholderTextColor="#A8A8B3"
-                  autoCapitalize="none"
-                  value={username}
-                  onChangeText={setUsername}
+                  placeholder="Nom complet"
+                  placeholderTextColor="#9CA3AF"
+                  value={name}
+                  onChangeText={setName}
                 />
               </View>
-              {!isNameValid && username.length > 0 && (
-                <Text style={styles.helperError}>Nom trop court.</Text>
-              )}
-
-              <View style={styles.inputContainer}>
-                <Ionicons name="mail-outline" size={20} color="#8E8E93" style={styles.inputIcon} />
+              <View style={styles.inputGroup}>
+                <Ionicons name="mail-outline" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
-                  placeholder="Adresse e-mail"
-                  placeholderTextColor="#A8A8B3"
+                  placeholder="Email"
+                  placeholderTextColor="#9CA3AF"
                   keyboardType="email-address"
                   autoCapitalize="none"
                   value={email}
                   onChangeText={setEmail}
                 />
               </View>
-              {!isEmailValid && email.length > 0 && (
-                <Text style={styles.helperError}>Format d'email invalide.</Text>
-              )}
-
-              <View style={styles.inputContainer}>
-                <Ionicons name="lock-closed-outline" size={20} color="#8E8E93" style={styles.inputIcon} />
+              <View style={styles.inputGroup}>
+                <Ionicons name="lock-closed-outline" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   placeholder="Mot de passe"
-                  placeholderTextColor="#A8A8B3"
+                  placeholderTextColor="#9CA3AF"
                   secureTextEntry={!showPassword}
                   value={password}
                   onChangeText={setPassword}
                 />
                 <TouchableOpacity onPress={() => setShowPassword(p => !p)}>
-                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#8E8E93" />
+                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} style={styles.inputIcon} />
                 </TouchableOpacity>
               </View>
-              {!isPasswordValid && password.length > 0 && (
-                <Text style={styles.helperError}>Au moins 6 caractères.</Text>
-              )}
-
-              <View style={styles.inputContainer}>
-                <Ionicons name="lock-closed-outline" size={20} color="#8E8E93" style={styles.inputIcon} />
+              <View style={styles.inputGroup}>
+                <Ionicons name="lock-closed-outline" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   placeholder="Confirmer le mot de passe"
-                  placeholderTextColor="#A8A8B3"
-                  secureTextEntry={!showConfirm}
+                  placeholderTextColor="#9CA3AF"
+                  secureTextEntry={!showConfirmPassword}
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
                 />
-                <TouchableOpacity onPress={() => setShowConfirm(p => !p)}>
-                  <Ionicons name={showConfirm ? 'eye-off-outline' : 'eye-outline'} size={20} color="#8E8E93" />
+                <TouchableOpacity onPress={() => setShowConfirmPassword(p => !p)}>
+                  <Ionicons name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} style={styles.inputIcon} />
                 </TouchableOpacity>
               </View>
-              {!isConfirmValid && confirmPassword.length > 0 && (
-                <Text style={styles.helperError}>La confirmation doit correspondre.</Text>
-              )}
-
+              
               <TouchableOpacity
-                style={[styles.registerButton, { transform: [{ scale: buttonScale }] }]}
+                style={[styles.button, styles.registerButton]}
                 onPress={handleRegister}
-                onPressIn={handlePressIn}
-                onPressOut={handlePressOut}
-                disabled={authLoading || !formValid}
+                disabled={authLoading}
               >
                 {authLoading ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color="#FFF" />
                 ) : (
                   <Text style={styles.buttonText}>S'inscrire</Text>
                 )}
               </TouchableOpacity>
+            </View>
 
-              {success && (
-                <View style={styles.successMessage}>
-                  <Ionicons name="checkmark-circle-outline" size={20} color="#22C55E" />
-                  <Text style={styles.successText}>Succès !</Text>
-                </View>
-              )}
-
-              <View style={styles.separatorContainer}>
-                <View style={styles.separatorLine} />
-                <Text style={styles.separatorText}>OU</Text>
-                <View style={styles.separatorLine} />
-              </View>
-
-
-              
-              <View style={styles.signupContainer}>
-                <Text style={styles.signupText}>Vous avez déjà un compte ?</Text>
-                <TouchableOpacity onPress={handleGoToLogin}>
-                  <Text style={styles.signupLink}>Se connecter</Text>
-                </TouchableOpacity>
-              </View>
-            </Animated.View>
-          </ScrollView>
-        </LinearGradient>
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>Vous avez déjà un compte ?</Text>
+              <TouchableOpacity onPress={() => router.push('/login')}>
+                <Text style={styles.loginLink}>Se connecter</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -248,165 +153,100 @@ export default function Register() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: '#FFFFFF',
   },
   container: {
     flex: 1,
   },
-  backgroundGradient: {
-    ...StyleSheet.absoluteFillObject,
+  innerContainer: {
+    flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 24,
   },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
+  header: {
     alignItems: 'center',
-    paddingVertical: 20,
+    marginBottom: 40,
   },
-  card: {
-    width: '90%',
-    maxWidth: 400,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 25,
-    padding: 25,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 15,
-  },
-  helperError: {
-    width: '100%',
-    color: '#ef4444',
-    marginTop: -8,
-    marginBottom: 10,
-    fontSize: 12,
+  backButton: {
+    position: 'absolute',
+    left: 0,
+    top: 10,
   },
   title: {
     fontSize: 32,
-    fontWeight: '800',
-    color: '#1E1E1E',
-    marginBottom: 5,
+    fontWeight: 'bold',
+    color: '#111827',
   },
   subtitle: {
     fontSize: 16,
-    color: '#6A6A6A',
-    marginBottom: 30,
+    color: '#6B7280',
+    marginTop: 8,
   },
-  errorText: {
-    color: '#FF6347',
-    textAlign: 'center',
-    marginBottom: 15,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  inputContainer: {
+  errorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#FEE2E2',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 20,
+  },
+  errorText: {
+    color: '#B91C1C',
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  form: {
     width: '100%',
-    backgroundColor: '#F7F7F7',
-    borderRadius: 15,
-    marginBottom: 15,
-    paddingHorizontal: 15,
-    height: 55,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 5,
-    elevation: 2,
+  },
+  inputGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    marginBottom: 16,
   },
   inputIcon: {
-    marginRight: 10,
+    fontSize: 22,
+    color: '#9CA3AF',
+    marginRight: 8,
   },
   input: {
     flex: 1,
+    height: 50,
     fontSize: 16,
-    color: '#333',
+    color: '#111827',
+  },
+  button: {
+    width: '100%',
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+    marginTop: 16,
   },
   registerButton: {
-    width: '100%',
-    backgroundColor: '#6C63FF',
-    paddingVertical: 18,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#6C63FF',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.4,
-    shadowRadius: 15,
-    elevation: 10,
+    backgroundColor: '#4F46E5',
   },
   buttonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  successMessage: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 20,
-    backgroundColor: '#E6F9F0',
-    padding: 10,
-    borderRadius: 10,
-  },
-  successText: {
-    color: '#22C55E',
-    marginLeft: 5,
-    fontWeight: 'bold',
-  },
-  separatorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    marginVertical: 30,
-  },
-  separatorLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#E5E7EB',
-  },
-  separatorText: {
-    marginHorizontal: 15,
-    color: '#A8A8B3',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  socialButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    height: 55,
-    backgroundColor: '#F7F7F7',
-    borderRadius: 15,
-    paddingHorizontal: 20,
-    marginBottom: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 5,
-    elevation: 2,
-  },
-  socialButtonText: {
-    flex: 1,
-    textAlign: 'center',
+    color: '#FFFFFF',
     fontSize: 16,
-    color: '#333',
-    fontWeight: '600',
-    marginLeft: 10,
-  },
-  signupContainer: {
-    flexDirection: 'row',
-    marginTop: 20,
-  },
-  signupText: {
-    color: '#A8A8B3',
-  },
-  signupLink: {
-    color: '#4F46E5',
     fontWeight: 'bold',
-    marginLeft: 5,
+  },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 40,
+  },
+  footerText: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  loginLink: {
+    marginLeft: 4,
+    color: '#4F46E5',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 });

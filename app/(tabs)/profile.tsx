@@ -116,6 +116,7 @@ interface UserProfile {
   notificationsEnabled?: boolean;
   theme?: 'light' | 'dark';
   addresses?: Address[];
+  city?: string;
   vacationMode?: boolean;
   subscriptionExpiry?: Timestamp;
 }
@@ -288,7 +289,7 @@ interface EditProfileModalProps {
   visible: boolean;
   onClose: () => void;
   userProfile: UserProfile | null;
-  onSave: (newProfile: { photoUrl?: string | null; phoneNumber?: string | null }) => void;
+  onSave: (newProfile: { photoUrl?: string | null; phoneNumber?: string | null; city?: string }) => void;
   loading: boolean;
 }
 
@@ -303,6 +304,8 @@ interface ReviewsTabProps {
   reviews: Review[];
   loading: boolean;
 }
+
+
 
 // =================================================================================
 // STYLES
@@ -975,6 +978,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#6C63FF',
     borderColor: '#6C63FF',
   },
+  // AJOUTEZ CE STYLE CI-DESSOUS
+  picker: {
+    width: '100%',
+    height: 50,
+  },
+
   providerButtonText: {
     color: '#333',
     fontSize: 14,
@@ -1787,6 +1796,9 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ visible, onClose, u
   const { authUser } = useAuth(); // Ajouter useAuth
   const [phoneNumber, setPhoneNumber] = useState(userProfile?.phoneNumber || '');
   const [photoUrl, setPhotoUrl] = useState<string | null>(userProfile?.photoUrl || null);
+  const [city, setCity] = useState(userProfile?.city || 'Kinshasa');
+
+  const cities = ['Kinshasa', 'Lubumbashi', 'Goma', 'Kisangani', 'Bukavu', 'Matadi', 'Kolwezi'];
 
   const handlePickImage = useCallback(async () => {
     const { status } = await ImagePickerExpo.requestMediaLibraryPermissionsAsync();
@@ -1816,7 +1828,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ visible, onClose, u
   }, [authUser]);
 
   const handleSave = () => {
-    onSave({ photoUrl, phoneNumber }); // Changer photoBase64 par photoUrl
+    onSave({ photoUrl, phoneNumber, city });
   };
 
   return (
@@ -1872,6 +1884,18 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ visible, onClose, u
               />
             </View>
 
+            <Text style={styles.inputLabel}>Ville</Text>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={city}
+                onValueChange={(itemValue) => setCity(itemValue)}
+                style={styles.picker}
+              >
+                {cities.map((c) => (
+                  <Picker.Item key={c} label={c} value={c} />
+                ))}
+              </Picker>
+            </View>
 
             <TouchableOpacity
               style={[styles.submitButton, loading && styles.disabledButton]}
@@ -2351,7 +2375,7 @@ const ManualConfirmationModal: React.FC<{
   const [confirmationCode, setConfirmationCode] = useState('');
   const [smsMessage, setSmsMessage] = useState('');
   const [transactionId, setTransactionId] = useState(''); // Added missing state
-  const operatorId = authUser?.uid || ''; // Added missing variable
+    const operatorId = authUser?.id || ""; // Added missing variable
 
   useEffect(() => {
     if (!visible) {
@@ -2597,7 +2621,7 @@ const Profile = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('profile');
   const [transactionId, setTransactionId] = useState("");
   const [smsMessage, setSmsMessage] = useState("");
-  const operatorId = authUser?.id || "";
+  const operatorId = authUser?.id as string;
 
   const [loading, setLoading] = useState<LoadingStates>({
     profile: true,
@@ -2663,7 +2687,9 @@ const Profile = () => {
         setUserProfile({ ...data, email: authUser.email! });
       } else {
         Alert.alert("Erreur", "Profil utilisateur introuvable.");
-        setUserProfile({ id: authUser.id, email: authUser.email! });
+        const safeEmail = authUser.email ?? "";
+const safeId = authUser.id ?? "";
+setUserProfile({ id: safeId, email: safeEmail });
       }
       setLoading(prev => ({ ...prev, profile: false }));
     });
@@ -2857,7 +2883,7 @@ const Profile = () => {
     setEditProfileModalVisible(true);
   };
 
-  const handleSaveProfile = async (newProfile: { photoUrl?: string | null; phoneNumber?: string | null }) => {
+  const handleSaveProfile = async (newProfile: { photoUrl?: string | null; phoneNumber?: string | null; city?: string; }) => {
     if (!authUser?.id) return;
     setLoading(prev => ({ ...prev, profileEdit: true }));
     try {

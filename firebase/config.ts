@@ -2,6 +2,7 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import { getStorage, FirebaseStorage } from 'firebase/storage';
+import { getAuth, Auth } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyAiROTzgd26gOEEoWra2ADKTviv753cx5Q',
@@ -17,6 +18,9 @@ const app = initializeApp(firebaseConfig);
 // Firestore
 export const db = getFirestore(app);
 export const firestore: Firestore = db;
+
+
+export const auth: Auth = getAuth(app);
 
 // Storage - Correction importante
 export const storage: FirebaseStorage = getStorage(app, "gs://yass-drc.firebasestorage.app");

@@ -106,9 +106,10 @@ export default function SubscribeScreen() {
       payload.isSellerVerified = true;
       payload.sellerUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     }
-    await updateDoc(doc(db, 'users', authUser!.id), payload);
+    if (!authUser?.id) throw new Error('User ID is undefined');
+    await updateDoc(doc(db, 'users', authUser.id), payload);
     await addDoc(collection(db, 'payments'), {
-      userId: authUser!.id,
+      userId: authUser.id,
       depositId,
       amount,
       currency,

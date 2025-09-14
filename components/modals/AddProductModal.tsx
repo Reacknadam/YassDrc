@@ -1,6 +1,7 @@
 import { useAuth } from '@/context/AuthContext';
 import { storage } from '@/firebase/config';
 import { createProduct } from '@/services/productService';
+import { Picker } from '@react-native-picker/picker';
 import { AntDesign, Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
@@ -34,9 +35,11 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ visible, onClose, onP
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
   const [category, setCategory] = useState('');
+  const [city, setCity] = useState('Kinshasa');
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const categories = ['Électronique', 'Mode', 'Maison', 'Beauté', 'Alimentation'];
+  const cities = ['Kinshasa', 'Lubumbashi', 'Goma', 'Kisangani', 'Bukavu', 'Matadi', 'Kolwezi'];
 
   const resetForm = () => {
     setImages([]);
@@ -44,6 +47,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ visible, onClose, onP
     setDescription('');
     setPrice('');
     setCategory('');
+    setCity('Kinshasa');
     setUploadProgress(null);
     setLoading(false);
   };
@@ -91,8 +95,8 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ visible, onClose, onP
 
   const handleAddProduct = async () => {
     if (loading) return;
-    if (!authUser?.id || !name.trim() || !description.trim() || !price.trim() || images.length === 0) {
-      Alert.alert('Erreur', 'Veuillez remplir tous les champs et ajouter au moins une image.');
+    if (!authUser?.id || !name.trim() || !description.trim() || !price.trim() || images.length === 0 || !city) {
+      Alert.alert('Erreur', 'Veuillez remplir tous les champs, y compris la ville, et ajouter au moins une image.');
       return;
     }
     setLoading(true);
@@ -106,6 +110,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ visible, onClose, onP
         price: parseFloat(price),
         images: imageUrls,
         category: category || 'Général',
+        city,
         sellerId: authUser.id,
         sellerName: authUser.shopName || authUser.name || 'Vendeur Anonyme',
         sellerPhotoUrl: authUser.photoUrl || '',
@@ -189,6 +194,18 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ visible, onClose, onP
                   <Text style={[styles.categoryText, category === cat && styles.activeCategoryText]}>{cat}</Text>
                 </TouchableOpacity>
               ))}
+            </View>
+            <Text style={styles.inputLabel}>Ville</Text>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={city}
+                onValueChange={(itemValue) => setCity(itemValue)}
+                style={styles.picker}
+              >
+                {cities.map((c) => (
+                  <Picker.Item key={c} label={c} value={c} />
+                ))}
+              </Picker>
             </View>
             <Text style={styles.inputLabel}>Images (max 3)</Text>
             <View style={styles.imageButtonsContainer}>
@@ -399,6 +416,17 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  pickerContainer: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    marginBottom: 10,
+    justifyContent: 'center',
+  },
+  picker: {
+    height: 50,
+    width: '100%',
   },
 });
 

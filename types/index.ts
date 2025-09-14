@@ -10,6 +10,7 @@ export interface Product {
   images: string[];
   sellerId: string;
   sellerName: string;
+  city: string;
   sellerPhotoUrl?: string;
   isSellerVerified?: boolean;
   createdAt: FieldValue;
@@ -24,6 +25,7 @@ export interface ProductData { // Utilisé pour la création de produit (sans l'
   images: string[];
   sellerId: string;
   sellerName: string;
+  city: string;
   isSellerVerified?: boolean;
   createdAt: FieldValue;
   category: string; // Gardé comme string car une valeur par défaut est toujours fournie
@@ -50,6 +52,7 @@ export interface UserType { // Étendue avec les propriétés utilisées dans ho
   isSeller?: boolean; // Indique si l'utilisateur est un vendeur
   isVerified?: boolean; // Indique si le compte est vérifié
   address?: string; // Adresse de l'utilisateur
+  city?: string; // Ville de l'utilisateur
   phoneNumber?: string; // Numéro de téléphone de l'utilisateur
   // Ajoutez d'autres propriétés d'utilisateur si nécessaire
 }

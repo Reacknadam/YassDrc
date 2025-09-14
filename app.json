@@ -20,8 +20,6 @@
       "package": "com.israel_ltd.yass",
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
@@ -52,7 +50,8 @@
         {
           "apiKey": "AIzaSyDFIO7vLUTgo-jlRT2i77uHvEqoxgJfRj4"
         }
-      ]
+      ],
+      "expo-auth-session"
     ],
     "experiments": {
       "typedRoutes": true

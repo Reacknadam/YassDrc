@@ -20,6 +20,7 @@ export interface ProductData {
   sellerName: string;
   sellerPhotoUrl: string;
   createdAt?: any;
+  city?: string;
   updatedAt?: any;
   sellerInfo?: SellerInfo; // <-- Ajouté ici
 }
