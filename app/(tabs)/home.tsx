@@ -560,6 +560,11 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        <AnimatedButton style={styles.dashboardButton} onPress={() => router.push('/driver')}>
+            <Feather name="list" size={20} color="#6C63FF" />
+            <Text style={styles.dashboardButtonText}>JE SUIS LIVREUR</Text>
+          </AnimatedButton>
+
         {/* Barre de Recherche */}
         <View style={styles.searchContainer}>
           <Feather name="search" size={20} color="#666" style={styles.searchIcon} />
@@ -620,6 +625,8 @@ export default function HomeScreen() {
             <Feather name="list" size={20} color="#6C63FF" />
             <Text style={styles.dashboardButtonText}>Mes Commandes</Text>
           </AnimatedButton>
+
+          
 
           <AnimatedButton
             style={styles.dashboardButton}

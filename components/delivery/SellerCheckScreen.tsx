@@ -456,15 +456,22 @@ const DriverModal: React.FC<{
                     <Ionicons name="person-circle" size={40} color="#4F46E5" />
                     <View style={styles.driverDetails}>
                       <Text style={styles.driverName}>{item.name}</Text>
-                      <Text style={styles.driverPhone}>{item.phoneNumber}</Text>
-                      <Text style={styles.driverDistance}>{item.distance} km</Text>
+                      <View style={styles.driverDetailRow}>
+                        <Ionicons name="call-outline" size={14} color="#64748B" />
+                        <Text style={styles.driverPhone}>{item.phoneNumber}</Text>
+                      </View>
+                      <View style={styles.driverDetailRow}>
+                        <Ionicons name="navigate-circle-outline" size={14} color="#10B981" />
+                        <Text style={styles.driverDistance}>{item.distance} km de vous</Text>
+                      </View>
                     </View>
                   </View>
                   <View style={styles.driverItemActions}>
                     <TouchableOpacity
                       onPress={() => onFocusDriver(item)}
+                      style={styles.focusButton}
                     >
-                      <Ionicons name="map-outline" size={20} color="#4F46E5" />
+                      <Ionicons name="locate-outline" size={20} color="#4F46E5" />
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.assignButton}
@@ -843,6 +850,10 @@ const SellerCheckScreen: React.FC = () => {
       await addDoc(collection(db, 'deliveries'), {
         orderId: selectedOrder.id,
         sellerId: authUser.id,
+        sellerName: authUser.email || 'Vendeur',
+        sellerPhone: authUser.phoneNumber || 'N/A',
+        sellerLat: location?.coords.latitude,
+        sellerLng: location?.coords.longitude,
         driverId: selectedDriver.id,
         driverName: selectedDriver.name,
         driverPhone: selectedDriver.phoneNumber,
@@ -904,6 +915,10 @@ const SellerCheckScreen: React.FC = () => {
         transaction.set(deliveryRef, {
           orderId: selectedOrder.id,
           sellerId: authUser.id,
+          sellerName: authUser.email || 'Vendeur',
+          sellerPhone: authUser.phoneNumber || 'N/A',
+          sellerLat: location?.coords.latitude,
+          sellerLng: location?.coords.longitude,
           buyerName: selectedOrder.customerName,
           customerPhone: selectedOrder.customerPhone,
           address: selectedOrder.deliveryAddress,
@@ -982,6 +997,10 @@ const SellerCheckScreen: React.FC = () => {
         await addDoc(collection(db, 'deliveries'), {
           orderId: selectedOrder.id,
           sellerId: authUser.id,
+          sellerName: authUser.email || 'Vendeur',
+          sellerPhone: authUser.phoneNumber || 'N/A',
+          sellerLat: location?.coords.latitude,
+          sellerLng: location?.coords.longitude,
           driverId: driver.id,
           driverName: driver.name,
           driverPhone: driver.phoneNumber,
@@ -1208,6 +1227,36 @@ const SellerCheckScreen: React.FC = () => {
             showsMyLocationButton={true}
             followsUserLocation={true}
           >
+            {availableDrivers
+              .filter(d => d.id !== highlightedDriver?.id)
+              .map(driver => (
+                <Marker
+                  key={driver.id}
+                  coordinate={{
+                    latitude: driver.liveLatitude,
+                    longitude: driver.liveLongitude,
+                  }}
+                  title={driver.name}
+                  description={`Tel: ${driver.phoneNumber}`}
+                  onPress={() => {
+                    setHighlightedDriver(driver);
+                    mapRef.current?.animateToRegion(
+                      {
+                        latitude: driver.liveLatitude,
+                        longitude: driver.liveLongitude,
+                        latitudeDelta: 0.02,
+                        longitudeDelta: 0.02,
+                      },
+                      500
+                    );
+                  }}
+                >
+                  <View style={styles.driverMapMarker}>
+                    <Ionicons name="car-sport" size={20} color="#FFF" />
+                  </View>
+                </Marker>
+              ))}
+
             {highlightedDriver && (
               <Marker
                 coordinate={{
@@ -1216,6 +1265,7 @@ const SellerCheckScreen: React.FC = () => {
                 }}
                 title={`${highlightedDriver.name} (sélectionné)`}
                 pinColor="gold"
+                zIndex={999}
               >
                 <View style={styles.highlightedMarker}>
                   <Ionicons name="star" size={24} color="#FFF" />
@@ -1487,6 +1537,19 @@ const styles = StyleSheet.create({
   },
   mapContainer: {
     flex: 1,
+  },
+
+  driverMapMarker: {
+    backgroundColor: '#8B5CF6', // Violet
+    padding: 8,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#FFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
   },
 
   driverMarker: {
@@ -1949,9 +2012,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#64748B',
   },
+  driverDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 6,
+  },
   driverDistance: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#10B981',
+    fontWeight: '500',
   },
   driverItemActions: {
     flexDirection: 'row',
@@ -1967,6 +2037,11 @@ const styles = StyleSheet.create({
   assignButtonText: {
     color: '#FFF',
     fontWeight: '600',
+  },
+  focusButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
   },
   uploadOverlay: {
     ...StyleSheet.absoluteFillObject,

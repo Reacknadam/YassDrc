@@ -36,9 +36,9 @@ export default function TabsLayout() {
   
   const navButtons: NavButtonConfig[] = [
     { tab: 'home', icon: 'home-outline', activeIcon: 'home', label: 'Accueil' },
-    { tab: 'help', icon: 'help-circle-outline', activeIcon: 'help-circle', label: 'Aide' },
+   
     ...(isSeller ? [{ tab: 'check' as ValidTab, icon: 'checkmark-circle-outline' as IconName, activeIcon: 'checkmark-circle' as IconName, label: 'Livraison' }] : []),
-    { tab: 'conv' as ValidTab, icon: 'chatbox-outline' as IconName, activeIcon: 'chatbox' as IconName, label: 'Chat' },
+    
     { tab: 'profile' as ValidTab, icon: 'person-outline' as IconName, activeIcon: 'person' as IconName, label: 'Profil' }
   ];
 

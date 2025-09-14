@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import { query, or, where, getDocs, collection, onSnapshot, updateDoc, doc, serv
 import MapView, { Marker, Polyline, Callout, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Linking, Platform } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import SignatureScreen from 'react-native-signature-canvas';
 import { db } from '@/firebase/config';
@@ -41,6 +42,8 @@ interface Delivery {
   sellerId: string;
   sellerName: string;
   sellerPhone: string;
+  sellerLat?: number;
+  sellerLng?: number;
   deliveryRoute?: { latitude: number; longitude: number }[];
   buyerName: string;
   buyerPhone: string;
@@ -234,6 +237,7 @@ export default function DriverScreen() {
   const [activeTab, setActiveTab] = useState<'available' | 'active' | 'completed'>('available');
   const [showMapModal, setShowMapModal] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const mapRef = useRef<MapView>(null);
   const [loading, setLoading] = useState(true);
   const [qrCodeImages, setQrCodeImages] = useState<{ airtel?: string; orange?: string; mpesa?: string } | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -366,7 +370,18 @@ export default function DriverScreen() {
 
   const handleDeliveryPress = (delivery: Delivery) => {
     setSelectedDelivery(delivery);
-    setModalVisible(true);
+    // Fit map to coordinates
+    if (viewMode === 'map' && mapRef.current && delivery.sellerLat && delivery.sellerLng && currentLocation) {
+      const coordinates = [
+        { latitude: currentLocation.coords.latitude, longitude: currentLocation.coords.longitude },
+        { latitude: delivery.sellerLat, longitude: delivery.sellerLng },
+        { latitude: delivery.lat, longitude: delivery.lng },
+      ];
+      mapRef.current.fitToCoordinates(coordinates, {
+        edgePadding: { top: 100, right: 50, bottom: 50, left: 50 },
+        animated: true,
+      });
+    }
   };
 
   const handleShowQR = async () => {
@@ -457,79 +472,108 @@ export default function DriverScreen() {
     }
   };
 
-  const DeliveryCard = ({ delivery }: { delivery: Delivery }) => (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.cardTitle}>{delivery.buyerName}</Text>
-          <View style={styles.cardLocation}>
-            <Ionicons name="location" size={16} color={Colors.primary} />
-            <Text style={styles.cardAddress}>{delivery.address}</Text>
+  const DeliveryCard = ({ delivery }: { delivery: Delivery }) => {
+    const statusInfo = {
+      pending: { text: 'Disponible', bg: Colors.statusPendingBg, text_color: Colors.statusPendingText },
+      picked_up: { text: 'En cours', bg: Colors.statusPickedUpBg, text_color: Colors.statusPickedUpText },
+      payment_ok: { text: 'Paiement OK', bg: Colors.statusPaymentOkBg, text_color: Colors.statusPaymentOkText },
+      delivered: { text: 'Livré', bg: Colors.statusDeliveredBg, text_color: Colors.statusDeliveredText },
+    };
+
+    const currentStatus = statusInfo[delivery.status as keyof typeof statusInfo] || statusInfo.pending;
+
+    return (
+      <View style={styles.card}>
+        {/* Header */}
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardTitle}>Course #{delivery.orderId.slice(-5).toUpperCase()}</Text>
+          <View style={styles.amountBadge}>
+            <Text style={styles.amountText}>{delivery.amount} FC</Text>
           </View>
         </View>
-        <View style={styles.amountBadge}>
-          <Text style={styles.amountText}>{delivery.amount} FC</Text>
+
+        {/* Pickup */}
+        <View style={styles.locationBlock}>
+          <View style={[styles.locationIconContainer, { backgroundColor: '#E0F2FE' }]}>
+            <Ionicons name="storefront-outline" size={24} color={Colors.primary} />
+          </View>
+          <View style={styles.locationDetails}>
+            <Text style={styles.locationLabel}>RÉCUPÉRATION</Text>
+            <Text style={styles.locationName}>{delivery.sellerName}</Text>
+            <Text style={styles.locationAddress}>Contacter pour l'adresse exacte</Text>
+          </View>
+          <TouchableOpacity 
+            style={styles.navigateButton} 
+            onPress={() => openNavigation(delivery.sellerLat, delivery.sellerLng, `Pickup ${delivery.sellerName}`)}
+          >
+            <Ionicons name="navigate-outline" size={28} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.separator} />
+
+        {/* Destination */}
+        <View style={styles.locationBlock}>
+          <View style={[styles.locationIconContainer, { backgroundColor: '#E0FBEA' }]}>
+            <Ionicons name="home-outline" size={24} color={Colors.success} />
+          </View>
+          <View style={styles.locationDetails}>
+            <Text style={styles.locationLabel}>DESTINATION</Text>
+            <Text style={styles.locationName}>{delivery.buyerName}</Text>
+            <Text style={styles.locationAddress}>{delivery.address}</Text>
+          </View>
+          <TouchableOpacity 
+            style={styles.navigateButton} 
+            onPress={() => openNavigation(delivery.lat, delivery.lng, `Destination ${delivery.buyerName}`)}
+          >
+            <Ionicons name="navigate-outline" size={28} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Footer */}
+        <View style={styles.cardFooter}>
+          <View style={[styles.statusBadge, { backgroundColor: currentStatus.bg }]}>
+            <Text style={[styles.statusText, { color: currentStatus.text_color }]}>
+              {currentStatus.text}
+            </Text>
+          </View>
+          
+          {delivery.status === 'pending' && (
+            <TouchableOpacity
+              style={[styles.actionButton, styles.actionButtonPrimary]}
+              onPress={() => handleTakeDelivery(delivery.id)}>
+              <Ionicons name="car-sport" size={20} color="white" />
+              <Text style={styles.actionButtonText}>Accepter la course</Text>
+            </TouchableOpacity>
+          )}
+
+          {delivery.status === 'picked_up' && (
+            <TouchableOpacity
+              style={[styles.actionButton, styles.actionButtonSecondary]}
+              onPress={() => {
+                setSelectedDelivery(delivery);
+                setShowQRModal(true);
+              }}>
+              <Ionicons name="qr-code" size={20} color="white" />
+              <Text style={styles.actionButtonText}>Confirmer Paiement</Text>
+            </TouchableOpacity>
+          )}
+
+          {delivery.status === 'payment_ok' && (
+            <TouchableOpacity
+              style={[styles.actionButton, styles.actionButtonSuccess]}
+              onPress={() => {
+                setSelectedDelivery(delivery);
+                setShowSignatureModal(true);
+              }}>
+              <FontAwesome name="pencil" size={20} color="white" />
+              <Text style={styles.actionButtonText}>Confirmer Livraison</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
-      
-      <View style={styles.cardDetails}>
-        <View style={styles.cardDetailItem}>
-          <Ionicons name="time" size={16} color={Colors.textSecondary} />
-          <Text style={styles.cardDetailText}>
-            {calculateDistance(delivery.lat, delivery.lng)} km
-          </Text>
-        </View>
-        <View style={[styles.statusBadge, { 
-          backgroundColor: delivery.status === 'pending' ? Colors.statusPendingBg : 
-                           delivery.status === 'picked_up' ? Colors.statusPickedUpBg : 
-                           delivery.status === 'payment_ok' ? Colors.statusPaymentOkBg : Colors.statusDeliveredBg 
-        }]}>
-          <Text style={[styles.statusText, { 
-            color: delivery.status === 'pending' ? Colors.statusPendingText : 
-                   delivery.status === 'picked_up' ? Colors.statusPickedUpText : 
-                   delivery.status === 'payment_ok' ? Colors.statusPaymentOkText : Colors.statusDeliveredText 
-          }]}>
-            {delivery.status === 'pending' ? 'Disponible' : 
-             delivery.status === 'picked_up' ? 'En cours' : 
-             delivery.status === 'payment_ok' ? 'Paiement OK' : 'Livré'}
-          </Text>
-        </View>
-      </View>
-      
-      {delivery.status === 'pending' && (
-        <TouchableOpacity
-          style={styles.actionButtonPrimary}
-          onPress={() => handleTakeDelivery(delivery.id)}>
-          <Ionicons name="car-sport" size={20} color="white" />
-          <Text style={styles.actionButtonText}>Accepter la course</Text>
-        </TouchableOpacity>
-      )}
-
-      {delivery.status === 'picked_up' && (
-        <TouchableOpacity
-          style={styles.actionButtonSecondary}
-          onPress={() => {
-            setSelectedDelivery(delivery);
-            setShowQRModal(true);
-          }}>
-          <Ionicons name="qr-code" size={20} color="white" />
-          <Text style={styles.actionButtonText}>Afficher QR codes</Text>
-        </TouchableOpacity>
-      )}
-
-      {delivery.status === 'payment_ok' && (
-        <TouchableOpacity
-          style={styles.actionButtonSuccess}
-          onPress={() => {
-            setSelectedDelivery(delivery);
-            setShowSignatureModal(true);
-          }}>
-          <FontAwesome name="pencil" size={20} color="white" />
-          <Text style={styles.actionButtonText}>Faire signer</Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
+    );
+  };
 
   const calculateDistance = (lat: number, lng: number) => {
     if (!currentLocation) return '0.0';
@@ -544,6 +588,23 @@ export default function DriverScreen() {
   };
 
   const deg2rad = (deg: number) => deg * (Math.PI/180);
+
+  const openNavigation = (lat?: number, lng?: number, label: string = 'Destination') => {
+    if (typeof lat === 'undefined' || typeof lng === 'undefined') {
+      Alert.alert("Erreur", "Coordonnées non disponibles.");
+      return;
+    }
+    const scheme = Platform.select({ ios: 'maps:0,0?q=', android: 'geo:0,0?q=' });
+    const latLng = `${lat},${lng}`;
+    const url = Platform.select({
+      ios: `${scheme}${label}@${latLng}`,
+      android: `${scheme}${latLng}(${label})`,
+    });
+    
+    if (url) {
+      Linking.openURL(url);
+    }
+  };
 
   if (!isLoggedIn) {
     return (
@@ -663,6 +724,7 @@ export default function DriverScreen() {
       {viewMode === 'map' ? (
         <View style={styles.mapContainer}>
           <MapView
+            ref={mapRef}
             provider={PROVIDER_GOOGLE}
             style={styles.map}
             initialRegion={
@@ -675,48 +737,63 @@ export default function DriverScreen() {
                   }
                 : undefined
             }
+            showsUserLocation={true}
+            userInterfaceStyle="dark"
           >
-            {currentLocation && (
+            {/* Markers for all available deliveries */}
+            {filteredDeliveries.map((delivery) => (
               <Marker
-                coordinate={{
-                  latitude: currentLocation.coords.latitude,
-                  longitude: currentLocation.coords.longitude,
-                }}
-                title="Ma position"
-                pinColor="blue"
-              />
-            )}
-            {deliveries.map((delivery) => {
-              if (delivery.lat && delivery.lng) {
-                return (
-                  <Marker
-                    key={delivery.id}
-                    coordinate={{
-                      latitude: delivery.lat,
-                      longitude: delivery.lng,
-                    }}
-                    title={delivery.orderId}
-                    onPress={() => handleDeliveryPress(delivery)}
-                  >
-                    <Callout>
-                      <View>
-                        <Text style={styles.calloutTitle}>Commande #{delivery.orderId}</Text>
-                        <Text>Client: {delivery.buyerName}</Text>
-                        <Text>Montant: {delivery.amount} $</Text>
-                        <Text>Statut: {delivery.status}</Text>
-                      </View>
-                    </Callout>
-                  </Marker>
-                );
-              }
-              return null;
-            })}
-            {selectedDelivery && selectedDelivery.deliveryRoute && (
-              <Polyline
-                coordinates={selectedDelivery.deliveryRoute}
-                strokeColor="#6C63FF"
-                strokeWidth={4}
-              />
+                key={delivery.id}
+                coordinate={{ latitude: delivery.lat, longitude: delivery.lng }}
+                onPress={() => handleDeliveryPress(delivery)}
+                tracksViewChanges={false}
+              >
+                <View style={[styles.markerDot, { backgroundColor: delivery.id === selectedDelivery?.id ? Colors.primary : Colors.textSecondary }]} />
+              </Marker>
+            ))}
+
+            {/* Route for the selected delivery */}
+            {selectedDelivery && selectedDelivery.sellerLat && selectedDelivery.sellerLng && (
+              <>
+                <Marker
+                  coordinate={{ latitude: selectedDelivery.sellerLat, longitude: selectedDelivery.sellerLng }}
+                  title={`Récupérer chez: ${selectedDelivery.sellerName}`}
+                  tracksViewChanges={false}
+                >
+                  <View style={styles.routeMarker}>
+                    <Ionicons name="storefront-outline" size={24} color={Colors.warning} />
+                  </View>
+                </Marker>
+                <Marker
+                  coordinate={{ latitude: selectedDelivery.lat, longitude: selectedDelivery.lng }}
+                  title={`Livrer à: ${selectedDelivery.buyerName}`}
+                  tracksViewChanges={false}
+                >
+                  <View style={styles.routeMarker}>
+                    <Ionicons name="home-outline" size={24} color={Colors.success} />
+                  </View>
+                </Marker>
+
+                {currentLocation && (
+                  <Polyline
+                    coordinates={[
+                      { latitude: currentLocation.coords.latitude, longitude: currentLocation.coords.longitude },
+                      { latitude: selectedDelivery.sellerLat, longitude: selectedDelivery.sellerLng },
+                    ]}
+                    strokeColor={Colors.primary}
+                    strokeWidth={4}
+                    lineDashPattern={[5, 5]}
+                  />
+                )}
+                <Polyline
+                  coordinates={[
+                    { latitude: selectedDelivery.sellerLat, longitude: selectedDelivery.sellerLng },
+                    { latitude: selectedDelivery.lat, longitude: selectedDelivery.lng },
+                  ]}
+                  strokeColor={Colors.success}
+                  strokeWidth={4}
+                />
+              </>
             )}
           </MapView>
         </View>
@@ -736,7 +813,9 @@ export default function DriverScreen() {
             </View>
           ) : (
             filteredDeliveries.map((delivery) => (
-              <DeliveryCard key={delivery.id} delivery={delivery} />
+              <TouchableOpacity key={delivery.id} onPress={() => handleDeliveryPress(delivery)}>
+                <DeliveryCard delivery={delivery} />
+              </TouchableOpacity>
             ))
           )}
         </ScrollView>
@@ -1086,7 +1165,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.cardBackground,
     borderRadius: 20,
-    padding: 20,
+    padding: 16,
     marginBottom: 16,
     shadowColor: Colors.shadow,
     shadowOffset: { width: 0, height: 4 },
@@ -1099,158 +1178,155 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 4,
   },
   cardTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
     color: Colors.textPrimary,
   },
-  cardLocation: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  cardAddress: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginLeft: 6,
-    flexShrink: 1,
-  },
   amountBadge: {
-    backgroundColor: Colors.secondary,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 20,
-    minWidth: 70,
-    alignItems: 'center',
   },
   amountText: {
     color: Colors.cardBackground,
     fontWeight: 'bold',
     fontSize: 14,
   },
-  qrModalContent: {
-    backgroundColor: '#fff',
-    padding: 24,
-    borderRadius: 16,
-    width: '90%',
-    alignSelf: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  qrImageContainer: {
+  locationBlock: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#e5e5e5',
-    borderRadius: 12,
-    padding: 16,
+    paddingVertical: 8,
   },
-  qrLabel: {
+  locationIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  locationDetails: {
+    flex: 1,
+  },
+  locationLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  locationName: {
     fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 8,
+    color: Colors.textPrimary,
   },
-  qrImage: {
-    width: 200,
-    height: 200,
-    resizeMode: 'contain',
-  },
-  signatureModalContainer: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  signatureHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#f3f4f6',
-  },
-  signatureTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1f2937',
-  },
-  closeButton: {
-    padding: 8,
-  },
-  cardDetails: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-    paddingTop: 12,
-  },
-  cardDetailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  cardDetailText: {
+  locationAddress: {
     fontSize: 14,
     color: Colors.textSecondary,
-    marginLeft: 6,
+  },
+  navigateButton: {
+    padding: 8,
+  },
+  separator: {
+    height: 20,
+    borderLeftWidth: 2,
+    borderLeftColor: Colors.border,
+    borderStyle: 'dashed',
+    marginLeft: 23,
+    marginVertical: -6,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
   },
   statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 20,
   },
   statusText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: 'bold',
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  actionButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    marginLeft: 8,
+    fontSize: 14,
   },
   actionButtonPrimary: {
     backgroundColor: Colors.primary,
-    paddingVertical: 16,
-    borderRadius: 15,
-    flexDirection: 'row',
-    justifyContent: 'center',
+  },
+
+  qrModalContent: {
+    backgroundColor: Colors.cardBackground,
+    borderRadius: 25,
+    width: '90%',
+    padding: 25,
     alignItems: 'center',
-    shadowColor: Colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
+  },
+  qrImageContainer: {
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  qrLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: 10,
+  },
+  qrImage: {
+    width: 200,
+    height: 200,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   actionButtonSecondary: {
-    backgroundColor: '#8E24AA',
-    paddingVertical: 16,
-    borderRadius: 15,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: Colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
+    backgroundColor: Colors.warning,
   },
   actionButtonSuccess: {
     backgroundColor: Colors.success,
-    paddingVertical: 16,
-    borderRadius: 15,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: Colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
   },
-  actionButtonText: {
-    color: Colors.cardBackground,
-    fontWeight: 'bold',
-    marginLeft: 10,
-    fontSize: 16,
+  markerDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: 'white',
+  },
+  routeMarker: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'white',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
   },
   emptyStateContainer: {
     flex: 1,
