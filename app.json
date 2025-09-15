@@ -46,9 +46,12 @@
         }
       ],
       [
-        "expo-maps",
+        "expo-build-properties",
         {
-          "apiKey": "AIzaSyDFIO7vLUTgo-jlRT2i77uHvEqoxgJfRj4"
+          "android": {
+            "kotlinVersion": "1.9.23",
+            "composeCompilerVersion": "1.5.11"
+          }
         }
       ]
     ],
