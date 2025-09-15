@@ -1,6 +1,6 @@
-import { useAuth } from '@/context/AuthContext';
-import { storage } from '@/firebase/config';
-import { createProduct } from '@/services/productService';
+import { useAuth } from '../../context/AuthContext';
+import { storage } from '../../firebase/config';
+import { createProduct } from '../../services/productService';
 import { Picker } from '@react-native-picker/picker';
 import { AntDesign, Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';

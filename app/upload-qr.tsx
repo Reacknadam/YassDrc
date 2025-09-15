@@ -1,11 +1,12 @@
-import { useAuth } from '@/context/AuthContext';
-import { db, storage } from '@/firebase/config';
+import { useAuth } from '../context/AuthContext';
+import { db, storage } from '../firebase/config';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import React, { useState } from 'react';
+import { useState } from 'react';
+import * as React from 'react';
 import { Alert, Image, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function UploadQR() {

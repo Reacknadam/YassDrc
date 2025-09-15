@@ -1,7 +1,7 @@
-import { AppUser, useAuth } from '@/context/AuthContext';
-import { useTheme } from '@/context/ThemeContext';
-import { useProductsAndSellers } from '@/hooks/useProductsAndSellers';
-import { CartItem, Product, SellerInfo } from '@/types';
+import { AppUser, useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
+import { useProductsAndSellers } from '../../hooks/useProductsAndSellers';
+import { CartItem, Product, SellerInfo } from '../../types';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -21,17 +21,17 @@ import {
 } from 'react-native';
 
 // Import Modals
-import AddProductModal from '@/components/modals/AddProductModal';
-import CartModal from '@/components/modals/CartModal';
-import MyOrdersModal from '@/components/modals/MyOrdersModal';
-import ProductDetailModal from '@/components/modals/ProductDetailModal';
-import ReviewModal from '@/components/modals/ReviewModal';
-import SellerDashboardModal from '@/components/modals/SellerDashboardModal';
-import SellerProductsModal from '@/components/modals/SellerProductsModal';
+import AddProductModal from '../../components/modals/AddProductModal';
+import CartModal from '../../components/modals/CartModal';
+import MyOrdersModal from '../../components/modals/MyOrdersModal';
+import ProductDetailModal from '../../components/modals/ProductDetailModal';
+import ReviewModal from '../../components/modals/ReviewModal';
+import SellerDashboardModal from '../../components/modals/SellerDashboardModal';
+import SellerProductsModal from '../../components/modals/SellerProductsModal';
 
 // Import other components
-import ProductCard from '@/components/products/ProductCard';
-import { db } from '@/firebase/config';
+import ProductCard from '../../components/products/ProductCard';
+import { db } from '../../firebase/config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Picker } from '@react-native-picker/picker';
 import * as Haptics from 'expo-haptics';

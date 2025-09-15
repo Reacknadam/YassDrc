@@ -1,5 +1,5 @@
-import { useAuth } from '@/context/AuthContext';
-import { db, storage } from '@/firebase/config';
+import { useAuth } from '../../context/AuthContext';
+import { db, storage } from '../../firebase/config';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePickerExpo from 'expo-image-picker';

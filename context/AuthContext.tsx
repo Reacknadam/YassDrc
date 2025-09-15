@@ -1,4 +1,4 @@
-import { auth, db } from '@/firebase/config';
+import { auth, db } from '../firebase/config';
 import { Alert } from 'react-native';
 import {
   User,
@@ -205,11 +205,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       await GoogleSignin.hasPlayServices();
       const userInfo = await GoogleSignin.signIn();
-  
-      if (userInfo.data?.idToken) {
-        const googleCredential = GoogleAuthProvider.credential(userInfo.data.idToken);
+
+      if (userInfo.idToken) {
+        const googleCredential = GoogleAuthProvider.credential(userInfo.idToken);
         const userCredential = await signInWithCredential(auth, googleCredential);
-  
+
         const user = userCredential.user;
         const userDocRef = doc(db, 'users', user.uid);
         const docSnap = await getDoc(userDocRef);

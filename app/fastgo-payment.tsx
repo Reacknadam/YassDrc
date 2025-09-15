@@ -1,9 +1,9 @@
 import React, { useRef, useEffect } from 'react';
 import { WebView } from 'react-native-webview';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { db } from '@/firebase/config';
+import { db } from '../firebase/config';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { Alert } from 'react-native';
 
 const WORKER = 'https://yass-webhook.israelntalu328.workers.dev';

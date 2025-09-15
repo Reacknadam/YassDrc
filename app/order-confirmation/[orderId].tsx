@@ -1,5 +1,5 @@
 // app/order-confirmation/[orderId].tsx
-import { db } from '@/firebase/config';
+import { db } from '../../firebase/config';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { doc, onSnapshot } from 'firebase/firestore';

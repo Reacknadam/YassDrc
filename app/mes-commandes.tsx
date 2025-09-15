@@ -1,6 +1,6 @@
 // app/mes-commandes.tsx
-import { db } from '@/firebase/config';
-import { useAuth } from '@/context/AuthContext';
+import { db } from '../firebase/config';
+import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';

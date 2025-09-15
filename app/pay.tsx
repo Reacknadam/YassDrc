@@ -1,6 +1,6 @@
 // PayScreen.tsx
-import { useAuth } from '@/context/AuthContext';
-import { db } from '@/firebase/config';
+import { useAuth } from '../context/AuthContext';
+import { db } from '../firebase/config';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';

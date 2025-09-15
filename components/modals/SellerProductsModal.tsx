@@ -1,4 +1,4 @@
-import { Product } from '@/types';
+import { Product } from '../../types';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {

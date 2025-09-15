@@ -1,5 +1,5 @@
 import React from 'react';
-import SellerCheckScreen from '@/components/delivery/SellerCheckScreen';
+import SellerCheckScreen from '../../components/delivery/SellerCheckScreen';
 
 const CheckScreen = () => {
   return <SellerCheckScreen />;

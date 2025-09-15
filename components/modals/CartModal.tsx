@@ -1,4 +1,4 @@
-import { CartItem } from '@/types';
+import { CartItem } from '../../types';
 import { AntDesign, Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {

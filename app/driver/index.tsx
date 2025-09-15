@@ -21,7 +21,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Linking, Platform } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import SignatureScreen from 'react-native-signature-canvas';
-import { db } from '@/firebase/config';
+import { db } from '../../firebase/config';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 

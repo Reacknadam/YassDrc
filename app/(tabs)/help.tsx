@@ -1,5 +1,5 @@
 // app/(tabs)/help.tsx
-import { db } from '@/firebase/config';
+import { db } from '../../firebase/config';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';

@@ -1,5 +1,5 @@
-import { useAuth } from '@/context/AuthContext';
-import { db } from '@/firebase/config';
+import { useAuth } from '../context/AuthContext';
+import { db } from '../firebase/config';
 import { AntDesign, Feather } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
 import { collection, query, where, getDocs, writeBatch, doc, serverTimestamp, addDoc } from 'firebase/firestore';

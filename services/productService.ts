@@ -1,4 +1,4 @@
-import { db } from '@/firebase/config';
+import { db } from '../firebase/config';
 import { addDoc, collection, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
 
 export interface SellerInfo {

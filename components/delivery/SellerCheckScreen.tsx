@@ -1,7 +1,7 @@
-import { useAuth } from '@/context/AuthContext';
-import { db, storage } from '@/firebase/config';
-import { useAppState } from '@/hooks/useAppState';
-import { useLiveLocation } from '@/hooks/useLiveLocation';
+import { useAuth } from '../../context/AuthContext';
+import { db, storage } from '../../firebase/config';
+import { useAppState } from '../../hooks/useAppState';
+import { useLiveLocation } from '../../hooks/useLiveLocation';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import {

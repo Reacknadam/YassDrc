@@ -1,6 +1,6 @@
 // app/subscribe.tsx
-import { useAuth } from '@/context/AuthContext';
-import { db } from '@/firebase/config';
+import { useAuth } from '../context/AuthContext';
+import { db } from '../firebase/config';
 import { router } from 'expo-router';
 import * as Crypto from 'expo-crypto';
 import { addDoc, getDoc, collection, doc, serverTimestamp, updateDoc } from 'firebase/firestore';

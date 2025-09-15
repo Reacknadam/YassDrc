@@ -1,8 +1,9 @@
-import { useAuth } from '@/context/AuthContext';
-import { db } from '@/firebase/config';
+import { useAuth } from '../../context/AuthContext';
+import { db } from '../../firebase/config';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import React, { useEffect, useRef, useState } from 'react';
+import  { useEffect, useRef, useState } from 'react';
+import * as React from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,

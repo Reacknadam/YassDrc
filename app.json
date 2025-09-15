@@ -50,8 +50,7 @@
         {
           "apiKey": "AIzaSyDFIO7vLUTgo-jlRT2i77uHvEqoxgJfRj4"
         }
-      ],
-      "expo-auth-session"
+      ]
     ],
     "experiments": {
       "typedRoutes": true
