@@ -1,14 +1,16 @@
 // src/firebase/config.ts
+// @ts-ignore  -- getReactNativePersistence n'est pas typé dans l'export public
+import { getReactNativePersistence, initializeAuth } from '@firebase/auth/dist/rn/index.js';
+import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, Firestore } from 'firebase/firestore';
-import { getStorage, FirebaseStorage } from 'firebase/storage';
-import { getAuth, Auth } from 'firebase/auth';
+import { Firestore, getFirestore } from 'firebase/firestore';
+import { FirebaseStorage, getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyAiROTzgd26gOEEoWra2ADKTviv753cx5Q',
   authDomain: 'yass-drc.firebaseapp.com',
   projectId: 'yass-drc',
-  storageBucket: 'yass-drc.appspot.com', // Assurez-vous que c'est correct
+  storageBucket: 'yass-drc.appspot.com',
   messagingSenderId: '946442540515',
   appId: '1:946442540515:web:d1b30386ab315e185bcd6',
 };
@@ -19,8 +21,10 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const firestore: Firestore = db;
 
+// Auth avec persistance React-Native
+export const auth = initializeAuth(app, {
+  persistence: getReactNativePersistence(ReactNativeAsyncStorage),
+});
 
-export const auth: Auth = getAuth(app);
-
-// Storage - Correction importante
-export const storage: FirebaseStorage = getStorage(app, "gs://yass-drc.firebasestorage.app");
+// Storage
+export const storage: FirebaseStorage = getStorage(app);

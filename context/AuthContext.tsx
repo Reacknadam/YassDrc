@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { auth, db } from '../firebase/config';
 import { Alert } from 'react-native';
 import {
@@ -12,7 +13,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { useRouter } from 'expo-router';
-import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
+import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 // =================================================================================

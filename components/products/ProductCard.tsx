@@ -8,8 +8,8 @@ import {
   Animated,
 } from 'react-native';
 import { AntDesign, Feather, Ionicons } from '@expo/vector-icons';
-import { Product } from '@/types';
-import OptimizedImage from '@/components/OptimizedImage';
+import { Product } from '../../types';
+import OptimizedImage from '../../components/OptimizedImage';
 
 interface ProductCardProps {
   product: Product;

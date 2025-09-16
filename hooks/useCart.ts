@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { CartItem, Product } from '@/types'; // Assurez-vous d'avoir ce chemin correct vers votre fichier types/index.ts
+import { CartItem, Product } from '../types'; // Assurez-vous d'avoir ce chemin correct vers votre fichier types/index.ts
 
 const CART_STORAGE_KEY = 'userCart';
 

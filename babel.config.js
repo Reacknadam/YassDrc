@@ -2,6 +2,16 @@ module.exports = function (api) {
   api.cache(true);
   return {
     presets: ['babel-preset-expo'],
-    // AUCUN ignore ici
+    plugins: [
+      [
+        'module-resolver',
+        {
+          root: ['./'],
+          alias: {
+            '@': './',
+          },
+        },
+      ],
+    ],
   };
 };

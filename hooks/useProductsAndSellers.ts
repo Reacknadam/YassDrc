@@ -1,5 +1,5 @@
-import { firestore } from '@/firebase/config';
-import { Product } from '@/types';
+import { firestore } from '../firebase/config';
+import { Product } from '../types';
 import {
   collection,
   DocumentSnapshot,
