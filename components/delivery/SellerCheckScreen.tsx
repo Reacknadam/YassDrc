@@ -339,21 +339,31 @@ const SellerCheckScreen: React.FC = () => {
         const st = String(status).toUpperCase();
 
         if (['SUCCESS', 'SUCCESSFUL'].includes(st)) {
-          clearInterval(pollRef.current!);
-          pollRef.current = null;
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
 
-          await updateDoc(doc(db, 'orders', selectedOrder!.id), {
-            status: 'payment_ok',
-            updatedAt: serverTimestamp(),
-          });
-
-          Alert.alert('✅ Paiement confirmé', 'La course est payée.');
+          if (selectedOrder?.id) {
+            await updateDoc(doc(db, 'orders', selectedOrder.id), {
+              status: 'payment_ok',
+              updatedAt: serverTimestamp(),
+            });
+            Alert.alert('✅ Paiement confirmé', 'La course est payée.');
+          } else {
+            console.error(
+              'pollStatus: selectedOrder or its ID is missing when trying to update payment status.'
+            );
+            Alert.alert('Erreur', 'Impossible de mettre à jour la commande, ID manquant.');
+          }
           return;
         }
 
         if (['FAILED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'ERROR'].includes(st)) {
-          clearInterval(pollRef.current!);
-          pollRef.current = null;
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
           Alert.alert('Paiement échoué', 'Le paiement a été refusé/annulé.');
           return;
         }
@@ -362,8 +372,10 @@ const SellerCheckScreen: React.FC = () => {
       }
 
       if (tries >= max) {
-        clearInterval(pollRef.current!);
-        pollRef.current = null;
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
         Alert.alert('⏱ Délai dépassé', 'Paiement non confirmé.');
       }
     }, 3000);
@@ -371,6 +383,11 @@ const SellerCheckScreen: React.FC = () => {
 
   const handleAppDeliverySelection = useCallback(async () => {
     if (!selectedOrder || !authUser?.id) return;
+
+    if (!selectedOrder.deliveryCoordinates) {
+      Alert.alert('Erreur de données', 'Les coordonnées de livraison pour cette commande sont manquantes.');
+      return;
+    }
 
     const depositId = uuid.v4() as string;
 
@@ -461,6 +478,11 @@ const SellerCheckScreen: React.FC = () => {
   const handleAssignDriver = useCallback(
     async (driver: Driver) => {
       if (!selectedOrder || !authUser?.id) return;
+
+      if (!selectedOrder.deliveryCoordinates) {
+        Alert.alert('Erreur de données', 'Les coordonnées de livraison pour cette commande sont manquantes.');
+        return;
+      }
 
       try {
         await addDoc(collection(db, 'deliveries'), {

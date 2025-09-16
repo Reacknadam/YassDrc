@@ -314,7 +314,7 @@ export default function DriverScreen() {
           setCurrentLocation(location);
           
           // Update driver location in Firestore
-          if (user) {
+          if (user?.id) {
             updateDoc(doc(db, 'users', user.id), {
               liveLatitude: location.coords.latitude,
               liveLongitude: location.coords.longitude,
