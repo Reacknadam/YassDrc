@@ -82,7 +82,10 @@ export const useProductsAndSellers = (filters: ProductFilters) => {
       if (querySnapshot.empty && !isRefreshing) {
         setHasMore(false);
       } else {
-        const fetched: Product[] = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product));
+        const fetched: Product[] = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          return { id: doc.id, ...(data && typeof data === 'object' ? data : {}) } as Product;
+        });
         setProducts(prev => isRefreshing ? fetched : [...prev, ...fetched]);
         const lastDoc = querySnapshot.docs[querySnapshot.docs.length - 1];
         setLastVisible(lastDoc);
