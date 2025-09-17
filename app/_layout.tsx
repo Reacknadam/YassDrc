@@ -82,7 +82,7 @@ function ModernSplashScreen() {
   );
 }
 
-export default function RootLayout() {
+function MainLayout() {
   const [loading, setLoading] = useState(true);
   const { authUser } = useAuth(); // ← hook perso
 
@@ -124,18 +124,22 @@ export default function RootLayout() {
 
   /* ----------  3.  UI  ---------- */
   return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FA' }}>
+      <StatusBar style="dark" />
+      {loading ? <ModernSplashScreen /> : <Slot />}
+    </SafeAreaView>
+  );
+}
+
+
+export default function RootLayout() {
+
+  return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
           <ThemeProvider>
-            <SafeAreaView style={{ flex: 1, backgroundColor: '#F8F9FA' }}>
-              <StatusBar style="dark" />
-              {loading ? (
-                <ModernSplashScreen />
-              ) : (
-                <Slot />
-              )}
-            </SafeAreaView>
+            <MainLayout />
           </ThemeProvider>
         </AuthProvider>
       </SafeAreaProvider>
