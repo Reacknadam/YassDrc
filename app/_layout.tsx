@@ -42,6 +42,6 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 16,
-    color: '#6C63FF',
+    color: '#6C63FF',      
   },
 });
