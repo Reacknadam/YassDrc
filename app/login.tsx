@@ -21,6 +21,7 @@ export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [localLoading, setLocalLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
@@ -35,10 +36,10 @@ export default function LoginScreen() {
       setError("L'email et le mot de passe sont requis.");
       return;
     }
+    setLocalLoading(true);
     const success = await login(email, password);
-    if (success) {
-      router.replace('/(tabs)/home');
-    }
+    setLocalLoading(false); // ← remet actif immédiatement
+    if (success) router.replace('/(tabs)/home');
   };
 
   return (
@@ -92,16 +93,16 @@ export default function LoginScreen() {
                 <Text style={styles.forgotPasswordText}>Mot de passe oublié ?</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.button, styles.loginButton]}
-                onPress={handleLogin}
-                disabled={authLoading}
-              >
-                {authLoading ? (
-                  <ActivityIndicator color="#FFF" />
-                ) : (
-                  <Text style={styles.buttonText}>Se connecter</Text>
-                )}
-              </TouchableOpacity>
+  style={[styles.button, styles.loginButton]}
+  onPress={handleLogin}
+  disabled={localLoading}
+>
+  {localLoading ? (
+    <ActivityIndicator color="#FFF" />
+  ) : (
+    <Text style={styles.buttonText}>Se connecter</Text>
+  )}
+</TouchableOpacity>
             </View>
 
             <View style={styles.separator}>

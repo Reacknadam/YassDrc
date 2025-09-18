@@ -22,6 +22,7 @@ export default function RegisterScreen() {
   const router = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [localLoading, setLocalLoading] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -42,7 +43,9 @@ export default function RegisterScreen() {
       setError("Les mots de passe ne correspondent pas.");
       return;
     }
+    setLocalLoading(true);
     const success = await register(name, email, password);
+    setLocalLoading(false); // ← remet actif immédiatement
     if (success) {
       Alert.alert("Succès", "Votre compte a été créé. Vous pouvez maintenant vous connecter.");
       router.replace('/login');
@@ -125,16 +128,16 @@ export default function RegisterScreen() {
               </View>
               
               <TouchableOpacity
-                style={[styles.button, styles.registerButton]}
-                onPress={handleRegister}
-                disabled={authLoading}
-              >
-                {authLoading ? (
-                  <ActivityIndicator color="#FFF" />
-                ) : (
-                  <Text style={styles.buttonText}>S'inscrire</Text>
-                )}
-              </TouchableOpacity>
+  style={[styles.button, styles.registerButton]}
+  onPress={handleRegister}
+  disabled={localLoading}
+>
+  {localLoading ? (
+    <ActivityIndicator color="#FFF" />
+  ) : (
+    <Text style={styles.buttonText}>S'inscrire</Text>
+  )}
+</TouchableOpacity>
             </View>
 
             <View style={styles.footer}>

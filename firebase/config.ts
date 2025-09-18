@@ -1,10 +1,8 @@
-// src/firebase/config.ts
-// @ts-ignore  -- getReactNativePersistence n'est pas typé dans l'export public
-import { getReactNativePersistence, initializeAuth } from '@firebase/auth/dist/rn/index.js';
-import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
+// firebase/config.ts
 import { initializeApp } from 'firebase/app';
-import { Firestore, getFirestore } from 'firebase/firestore';
-import { FirebaseStorage, getStorage } from 'firebase/storage';
+import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
+import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyAiROTzgd26gOEEoWra2ADKTviv753cx5Q',
@@ -17,14 +15,5 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// Firestore
-export const db = getFirestore(app);
-export const firestore: Firestore = db;
-
-// Auth avec persistance React-Native
-export const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(ReactNativeAsyncStorage),
-});
-
-// Storage
-export const storage: FirebaseStorage = getStorage(app);
+export const db      = getFirestore(app);
+export const storage = getStorage(app);
