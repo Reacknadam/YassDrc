@@ -10,7 +10,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -29,16 +29,13 @@ interface NavButtonConfig {
 
 export default function TabsLayout() {
   const router = useRouter();
-  const { isSeller } = useAuth(); // ✅ Remplace tout le useState + onSnapshot
+  const { isSeller } = useAuth();
   const [activeTab, setActiveTab] = useState<ValidTab>('home');
   const indicatorPosition = useRef(new Animated.Value(0)).current;
 
-  
   const navButtons: NavButtonConfig[] = [
     { tab: 'home', icon: 'home-outline', activeIcon: 'home', label: 'Accueil' },
-   
     ...(isSeller ? [{ tab: 'check' as ValidTab, icon: 'checkmark-circle-outline' as IconName, activeIcon: 'checkmark-circle' as IconName, label: 'Livraison' }] : []),
-    
     { tab: 'profile' as ValidTab, icon: 'person-outline' as IconName, activeIcon: 'person' as IconName, label: 'Profil' }
   ];
 
@@ -138,9 +135,7 @@ const NavButton = ({ icon, activeIcon, label, active, onPress }: NavButtonProps)
 );
 
 const styles = StyleSheet.create({
-  navWrapper: {
-    width: '100%',
-  },
+  navWrapper: { width: '100%' },
   navBar: {
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -181,10 +176,9 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: 11,
     marginTop: 4,
-    fontFamily: 'Inter-Medium',
   },
   activeLabel: {
     color: '#6E45E2',
-    fontFamily: 'Inter-SemiBold',
+    fontWeight: '600',
   },
 });

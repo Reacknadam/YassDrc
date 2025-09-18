@@ -47,6 +47,7 @@ export default function RegisterScreen() {
     const success = await register(name, email, password);
     setLocalLoading(false); // ← remet actif immédiatement
     if (success) {
+      console.log('Register error:', authError);
       Alert.alert("Succès", "Votre compte a été créé. Vous pouvez maintenant vous connecter.");
       router.replace('/login');
     }

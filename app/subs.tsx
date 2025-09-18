@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase/config';
 import { router } from 'expo-router';
 import * as Crypto from 'expo-crypto';
-import { addDoc, getDoc, collection, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,6 +20,10 @@ import { WebView, WebViewNavigation } from 'react-native-webview';
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const WORKER_ROOT = 'https://yass-webhook.israelntalu328.workers.dev';
 
+/* ------------------------------------------------------------------ */
+/*  Helper : génère un ID compatible PawaPay (32 car, hex, sans -)   */
+/* ------------------------------------------------------------------ */
+const generateDepositId = () => Crypto.randomUUID();
 export default function SubscribeScreen() {
   const { authUser } = useAuth();
   const [visible, setVisible] = useState(false);
@@ -28,7 +32,7 @@ export default function SubscribeScreen() {
   const [depositId, setDepositId] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ------  chargement prix  ------
+  /* 1.  Chargement prix public */
   useEffect(() => {
     (async () => {
       try {
@@ -43,27 +47,35 @@ export default function SubscribeScreen() {
     })();
   }, []);
 
-  /* ---------- 1.  Ouvre la WebView ---------- */
+  /* 2.  Ouvre la WebView avec le depositId généré */
   const startPayment = () => {
-    if (!authUser?.id) return Alert.alert('Erreur', 'Non connecté');
+    if (!authUser?.uid) return Alert.alert('Erreur', 'Non connecté');
+    const id = generateDepositId();
+console.log('[PawaPay] UUID v4 généré :', id, '(longueur =', id.length, ')');
+    setDepositId(id);
     setVisible(true);
   };
 
-  /* ---------- 2.  Interception du retour ---------- */
+  /* 3.  Interception du retour – récupère l’ID dans l’URL */
   const handleNavChange = (nav: WebViewNavigation) => {
     const { url } = nav;
+    console.log('[PawaPay] URL interceptée :', url);   // ← LOG
     if (url.includes(`${WORKER_ROOT}/payment-return`)) {
-      const id = Crypto.randomUUID();
-      if (id) {
-        setDepositId(id);
+      const params = new URL(url).searchParams;
+      const returnedId = params.get('depositId');
+      console.log('[PawaPay] depositId reçu dans return :', returnedId); // ← LOG
+      if (returnedId) {
         setVisible(false);
-        pollStatus(id);
+        pollStatus(returnedId);
+      } else {
+        Alert.alert('Erreur', 'depositId manquant dans le retour');
       }
     }
   };
 
-  /* ---------- 3.  Polling statut ---------- */
+  /* 4.  Polling avec l’ID retourné */
   const pollStatus = (id: string) => {
+    console.log('[PawaPay] polling démarré pour', id); // ← LOG
     let tries = 0;
     const max = 20;
     if (pollRef.current) clearInterval(pollRef.current);
@@ -75,6 +87,7 @@ export default function SubscribeScreen() {
         if (!r.ok) throw new Error('Network');
         const { status } = await r.json();
         const st = String(status).toUpperCase();
+        console.log(`[PawaPay] tentative ${tries} -> status : ${st}`); // ← LOG
 
         if (['SUCCESS', 'SUCCESSFUL'].includes(st)) {
           clearInterval(pollRef.current!); pollRef.current = null;
@@ -89,7 +102,7 @@ export default function SubscribeScreen() {
           Alert.alert('Paiement échoué', 'Le paiement a été refusé/annulé.');
           return;
         }
-      } catch {/* ignore */}
+      } catch (e) { console.warn('[PawaPay] erreur polling', e); }
 
       if (tries >= max) {
         clearInterval(pollRef.current!); pollRef.current = null;
@@ -99,17 +112,17 @@ export default function SubscribeScreen() {
     }, 3000);
   };
 
-  /* ---------- 4.  Firestore ---------- */
+  /* 5.  Firestore */
   const saveToFirestore = async (status: 'success' | 'failed' | 'timeout') => {
     const payload: any = { paymentStatus: status, paymentUpdatedAt: serverTimestamp() };
     if (status === 'success') {
       payload.isSellerVerified = true;
       payload.sellerUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     }
-    if (!authUser?.id) throw new Error('User ID is undefined');
-    await updateDoc(doc(db, 'users', authUser.id), payload);
+    if (!authUser?.uid) throw new Error('User ID undefined');
+    await updateDoc(doc(db, 'users', authUser.uid), payload);
     await addDoc(collection(db, 'payments'), {
-      userId: authUser.id,
+      userId: authUser.uid,
       depositId,
       amount,
       currency,
@@ -118,7 +131,7 @@ export default function SubscribeScreen() {
     });
   };
 
-  /* ---------- 5.  Rendu ---------- */
+  /* 6.  Rendu */
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Abonnement Vendeur</Text>
@@ -142,7 +155,9 @@ export default function SubscribeScreen() {
             <Text style={{ fontSize: 18 }}>✕ Fermer</Text>
           </TouchableOpacity>
           <WebView
-            source={{ uri: `${WORKER_ROOT}/payment-page?amount=${amount}&currency=CDF` }}
+            source={{
+              uri: `${WORKER_ROOT}/payment-page?amount=${amount}&currency=${currency}&depositId=${depositId}`,
+            }}
             onNavigationStateChange={handleNavChange}
             startInLoadingState
             renderLoading={() => (

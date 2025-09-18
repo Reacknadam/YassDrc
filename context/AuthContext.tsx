@@ -6,18 +6,21 @@ import { Alert } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import { supabase } from '../supabase/client';
-import { Session, User } from '@supabase/supabase-js';
+import { Session } from '@supabase/supabase-js';
+import { db } from '../firebase/config';
+import { doc, onSnapshot, setDoc, updateDoc, Timestamp, deleteDoc } from 'firebase/firestore';
 
 export interface AppUser {
   uid: string;
   email: string | null;
   name: string;
-  id?: string;
   isSellerVerified?: boolean;
   photoUrl?: string;
   phoneNumber?: string;
   shopName?: string;
   city?: string;
+  sellerUntil?: Timestamp;
+  createdAt?: Timestamp;
 }
 
 type AuthContextType = {
@@ -52,60 +55,77 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // ------------------------------------------------------------------
   useEffect(() => {
     setLoading(true);
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session?.user) {
-        const { data: userProfile, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
 
-        if (error?.code === '42P01') {
-          console.warn('Table profiles introuvable → création');
-          await supabase.from('profiles').insert({
-            id: session.user.id,
-            email: session.user.email,
-            name: session.user.email?.split('@')[0] || 'Utilisateur',
-            city: 'Kinshasa',
-          });
-          const { data: created } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-          if (created) {
-            const appUser: AppUser = {
-              uid: created.id,
-              email: created.email,
-              name: created.name,
-              isSellerVerified: created.is_seller_verified || false,
-              photoUrl: created.photo_url,
-              city: created.city,
-            };
-            setAuthUser(appUser);
-            setIsSeller(appUser.isSellerVerified || false);
-          }
-        } else if (userProfile) {
-          const appUser: AppUser = {
-            uid: userProfile.id,
-            email: userProfile.email,
-            name: userProfile.name || 'Utilisateur',
-            isSellerVerified: userProfile.is_seller_verified || false,
-            photoUrl: userProfile.photo_url,
-            city: userProfile.city,
-          };
-          setAuthUser(appUser);
-            setIsSeller(appUser.isSellerVerified || false);
-        }
-      } else {
+      if (!session?.user) {
         setAuthUser(null);
         setIsSeller(false);
+        setLoading(false);
+        return;
       }
-      setLoading(false);
+
+      const userDocRef = doc(db, 'users', session.user.id);
+      const firestoreUnsubscribe = onSnapshot(userDocRef, async (docSnap) => {
+        if (docSnap.exists()) {
+          const userData = docSnap.data() as AppUser;
+
+          // Check for subscription expiry
+          const now = Timestamp.now();
+          if (userData.isSellerVerified && userData.sellerUntil && userData.sellerUntil < now) {
+            console.log(`User ${userData.uid} subscription expired. Updating status.`);
+            await updateDoc(userDocRef, { isSellerVerified: false });
+            userData.isSellerVerified = false; // Update locally to reflect change immediately
+          }
+
+          const appUser: AppUser = {
+            uid: session.user.id,
+            email: session.user.email,
+            name: userData.name || session.user.email?.split('@')[0] || 'Utilisateur',
+            isSellerVerified: userData.isSellerVerified || false,
+            photoUrl: userData.photoUrl,
+            city: userData.city,
+            sellerUntil: userData.sellerUntil,
+            phoneNumber: userData.phoneNumber,
+            shopName: userData.shopName,
+          };
+
+          setAuthUser(appUser);
+          setIsSeller(appUser.isSellerVerified || false);
+        } else {
+          // User exists in Supabase Auth but not in Firestore, let's create their profile
+          console.log(`User profile for ${session.user.id} not found in Firestore. Creating...`);
+          const newUser: AppUser = {
+            uid: session.user.id,
+            email: session.user.email,
+            name: session.user.email?.split('@')[0] || 'Utilisateur',
+            createdAt: Timestamp.now(),
+            isSellerVerified: false,
+            city: 'Kinshasa',
+          };
+          await setDoc(userDocRef, newUser);
+          setAuthUser(newUser);
+          setIsSeller(false);
+        }
+        setLoading(false);
+      }, (error) => {
+        console.error("Error listening to user profile:", error);
+        setLoading(false);
+        setAuthUser(null);
+      });
+
+      // Return cleanup function for the Firestore listener
+      return () => {
+        console.log("Unsubscribing from Firestore user listener.");
+        firestoreUnsubscribe();
+      };
     });
 
-    return () => subscription.unsubscribe();
+    // Return cleanup function for the Supabase auth listener
+    return () => {
+      console.log("Unsubscribing from Supabase auth state change.");
+      authSubscription.unsubscribe();
+    };
   }, []);
 
   // ------------------------------------------------------------------
@@ -119,7 +139,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (error) throw error;
       return true;
     } catch (err: any) {
-      setError('Email ou mot de passe incorrect.');
+      setError(err.message);
       return false;
     } finally {
       setLoading(false);
@@ -136,15 +156,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { name, city: 'Kinshasa' } },
+        options: { data: { name } },
       });
+
       if (error) throw error;
       if (!data.user) throw new Error("L'utilisateur n'a pas été créé.");
+
+      // Create user profile in Firestore
+      const userRef = doc(db, 'users', data.user.id);
+      const newUser: AppUser = {
+        uid: data.user.id,
+        email: data.user.email,
+        name,
+        createdAt: Timestamp.now(),
+        isSellerVerified: false,
+        city: 'Kinshasa',
+      };
+      await setDoc(userRef, newUser);
+
       return true;
     } catch (err: any) {
-      setError(err.message.includes('already registered')
-        ? 'Cet email est déjà utilisé.'
-        : "Erreur lors de l'inscription.");
+      setError(err.message);
       return false;
     } finally {
       setLoading(false);
@@ -159,7 +191,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       await supabase.auth.signOut();
       router.replace('/login');
     } catch (err: any) {
-      setError('Erreur lors de la déconnexion');
+      setError(err.message);
     }
   };
 
@@ -177,12 +209,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           style: 'destructive',
           onPress: async () => {
             try {
-              // 1. Supprime l’utilisateur chez Supabase
-              const { error } = await supabase.auth.admin.deleteUser(authUser!.uid);
-              if (error) throw error;
+              if (!authUser?.uid) {
+                Alert.alert('Erreur', 'Utilisateur non trouvé.');
+                return;
+              }
+              // 1. Supprime l’utilisateur chez Supabase (requires service_role key)
+              // This is a delicate operation. For now, we will focus on deleting data.
+              // const { error } = await supabase.auth.admin.deleteUser(authUser!.uid);
+              // if (error) throw error;
 
-              // 2. Supprime la ligne profiles
-              await supabase.from('profiles').delete().eq('id', authUser!.uid);
+              // 2. Supprime le document user de firestore
+              await deleteDoc(doc(db, 'users', authUser.uid));
 
               // 3. Déconnecte
               await logout();

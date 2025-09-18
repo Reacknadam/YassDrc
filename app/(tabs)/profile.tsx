@@ -1817,7 +1817,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ visible, onClose, u
 
     try {
       const imageUri = pickerResult.assets[0].uri;
-      const imagePath = `profiles/${authUser?.id}/${Date.now()}_${imageUri.split('/').pop()}`;
+      const imagePath = `profiles/${authUser?.uid}/${Date.now()}_${imageUri.split('/').pop()}`;
       const uploadedUrl = await uploadImageAsync(imageUri, imagePath);
 
       setPhotoUrl(uploadedUrl);
@@ -2615,16 +2615,14 @@ const PromotionsTab: React.FC<PromotionsTabProps> = ({ promotions, onAddPromotio
 
 const Profile = () => {
   // ✅ TOUS LES HOOKS SONT MAINTENANT AU DÉBUT DU COMPOSANT
-  const { authUser, logout } = useAuth();
+  const { authUser, logout, isSeller, loading: authLoading } = useAuth();
   const router = useRouter();
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('profile');
   const [transactionId, setTransactionId] = useState("");
   const [smsMessage, setSmsMessage] = useState("");
-  const operatorId = authUser?.id as string;
+  const operatorId = authUser?.uid as string;
 
-  const [loading, setLoading] = useState<LoadingStates>({
-    profile: true,
+  const [loading, setLoading] = useState({
     sellerForm: false,
     payment: false,
     products: false,
@@ -2675,34 +2673,13 @@ const Profile = () => {
     averageRating: 0,
   });
 
-  const isSeller = userProfile?.isSellerVerified;
-
-  const fetchUserProfile = useCallback(async () => {
-    if (!authUser?.id) return;
-    setLoading(prev => ({ ...prev, profile: true }));
-    const docRef = doc(db, 'users', authUser.id);
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data() as UserProfile;
-        setUserProfile({ ...data, email: authUser.email! });
-      } else {
-        Alert.alert("Erreur", "Profil utilisateur introuvable.");
-        const safeEmail = authUser.email ?? "";
-const safeId = authUser.id ?? "";
-setUserProfile({ id: safeId, email: safeEmail });
-      }
-      setLoading(prev => ({ ...prev, profile: false }));
-    });
-    return unsubscribe;
-  }, [authUser]);
-
   const fetchSellerData = useCallback(async () => {
-    if (!authUser?.id) return;
+    if (!authUser?.uid) return;
     setLoading(prev => ({ ...prev, products: true, orders: true, promotions: true }));
 
-    const productsQuery = query(collection(db, 'products'), where('sellerId', '==', authUser.id));
-    const ordersQuery = query(collection(db, 'orders'), where('sellerId', '==', authUser.id), orderBy('createdAt', 'desc'));
-    const promotionsQuery = query(collection(db, 'promotions'), where('sellerId', '==', authUser.id));
+    const productsQuery = query(collection(db, 'products'), where('sellerId', '==', authUser.uid));
+    const ordersQuery = query(collection(db, 'orders'), where('sellerId', '==', authUser.uid), orderBy('createdAt', 'desc'));
+    const promotionsQuery = query(collection(db, 'promotions'), where('sellerId', '==', authUser.uid));
 
     const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
       const fetchedProducts: Product[] = snapshot.docs.map(doc => ({
@@ -2743,9 +2720,9 @@ setUserProfile({ id: safeId, email: safeEmail });
   }, [authUser]);
 
   const fetchActivities = useCallback(async () => {
-    if (!authUser?.id) return;
+    if (!authUser?.uid) return;
     setLoading(prev => ({ ...prev, activity: true }));
-    const q = query(collection(db, 'activities'), where('userId', '==', authUser.id), orderBy('timestamp', 'desc'));
+    const q = query(collection(db, 'activities'), where('userId', '==', authUser.uid), orderBy('timestamp', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedActivities: UserActivity[] = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -2758,11 +2735,11 @@ setUserProfile({ id: safeId, email: safeEmail });
   }, [authUser]);
 
   const fetchReviews = useCallback(async () => {
-    if (!isSeller || !authUser?.id) return;
+    if (!isSeller || !authUser?.uid) return;
     setLoading(prev => ({ ...prev, reviews: true }));
     const reviewsRef = collection(db, 'reviews');
     const productsRef = collection(db, 'products');
-    const productsSnapshot = await getDocs(query(productsRef, where('sellerId', '==', authUser.id)));
+    const productsSnapshot = await getDocs(query(productsRef, where('sellerId', '==', authUser.uid)));
     const productIds = productsSnapshot.docs.map(doc => doc.id);
     if (productIds.length > 0) {
       const q = query(reviewsRef, where('productId', 'in', productIds), orderBy('createdAt', 'desc'));
@@ -2820,16 +2797,8 @@ setUserProfile({ id: safeId, email: safeEmail });
   }, []);
 
   useEffect(() => {
-    let unsubscribeProfile: (() => void) | undefined;
-    const setup = async () => {
-      unsubscribeProfile = await fetchUserProfile();
-    };
-    setup();
     fetchSubscriptionPrice();
-    return () => {
-      if (unsubscribeProfile) unsubscribeProfile();
-    };
-  }, [fetchUserProfile, fetchSubscriptionPrice]);
+  }, [fetchSubscriptionPrice]);
 
   useEffect(() => {
     let unsubscribeSellerData: (() => void) | undefined;
@@ -2870,7 +2839,7 @@ setUserProfile({ id: safeId, email: safeEmail });
 
 
   // ✅ LE `RETURN` CONDITIONNEL EST MAINTENANT APRÈS LES HOOKS
-  if (loading.profile) {
+  if (authLoading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#6C63FF" />
@@ -2884,10 +2853,10 @@ setUserProfile({ id: safeId, email: safeEmail });
   };
 
   const handleSaveProfile = async (newProfile: { photoUrl?: string | null; phoneNumber?: string | null; city?: string; }) => {
-    if (!authUser?.id) return;
+    if (!authUser?.uid) return;
     setLoading(prev => ({ ...prev, profileEdit: true }));
     try {
-      await updateDoc(doc(db, 'users', authUser.id), newProfile);
+      await updateDoc(doc(db, 'users', authUser.uid), newProfile);
       Alert.alert('Succès', 'Profil mis à jour avec succès !');
       setEditProfileModalVisible(false);
     } catch (e) {
@@ -2932,12 +2901,12 @@ setUserProfile({ id: safeId, email: safeEmail });
           text: 'Oui',
           style: 'destructive',
           onPress: async () => {
-            if (!authUser?.id) return;
+            if (!authUser?.uid) return;
             try {
-              if (userProfile?.sellerRequestId) {
-                await deleteDoc(doc(db, 'sellerRequests', userProfile.sellerRequestId));
+              if (authUser?.sellerRequestId) {
+                await deleteDoc(doc(db, 'sellerRequests', authUser.sellerRequestId));
               }
-              await updateDoc(doc(db, 'users', authUser.id), {
+              await updateDoc(doc(db, 'users', authUser.uid), {
                 isSellerRequested: false,
                 sellerRequestId: null,
                 sellerForm: null,
@@ -2956,7 +2925,7 @@ setUserProfile({ id: safeId, email: safeEmail });
   };
 
   const handleManualConfirmation = async (confirmationCode: string, smsMessage: string) => {
-    if (!authUser?.id) {
+    if (!authUser?.uid) {
       Alert.alert("Erreur", "Utilisateur non authentifié");
       return;
     }
@@ -2966,9 +2935,9 @@ setUserProfile({ id: safeId, email: safeEmail });
       await addDoc(collection(db, 'manual-confirm'), {
         transactionId: confirmationCode?.trim() || "",
         confirmationMessage: smsMessage?.trim() || "",
-        operatorId: authUser.id,
+        operatorId: authUser.uid,
         userEmail: authUser.email || "",
-        userName: authUser.email || "",
+        userName: authUser.name || "",
         userPhone: authUser.phoneNumber || "",
         status: "pending",
         createdAt: serverTimestamp(),
@@ -2985,24 +2954,24 @@ setUserProfile({ id: safeId, email: safeEmail });
   };
 
   const handleSellerFormSubmit = async () => {
-    if (!authUser?.id) return;
+    if (!authUser?.uid) return;
     setLoading(prev => ({ ...prev, sellerForm: true }));
 
     try {
       const requestRef = await addDoc(collection(db, 'sellerRequests'), {
         ...sellerForm,
-        userId: authUser.id,
+        userId: authUser.uid,
         status: 'pending',
         requestedAt: serverTimestamp(),
       });
 
-      await updateDoc(doc(db, 'users', authUser.id), {
+      await updateDoc(doc(db, 'users', authUser.uid), {
         isSellerRequested: true,
         sellerForm,
         sellerRequestId: requestRef.id,
       });
 
-      router.push(`/subs?phone=${sellerForm.phoneNumber}&provider=${sellerForm.idType}&amount=${subscriptionPrice}&userId=${authUser.id}`);
+      router.push(`/subs?phone=${sellerForm.phoneNumber}&provider=${sellerForm.idType}&amount=${subscriptionPrice}&userId=${authUser.uid}`);
 
     } catch (e) {
       console.error("Error submitting seller form: ", e);
@@ -3047,7 +3016,7 @@ setUserProfile({ id: safeId, email: safeEmail });
   };
 
   const handleOrderStatusChange = async (orderId: string, newStatus: Order['status'], tracking?: string, note?: string) => {
-    if (!authUser?.id) return;
+    if (!authUser?.uid) return;
     try {
       const orderRef = doc(db, 'orders', orderId);
       const orderDoc = await getDoc(orderRef);
@@ -3115,12 +3084,12 @@ setUserProfile({ id: safeId, email: safeEmail });
   };
 
   const handleReportSubmit = async (report: { type: Report['type']; description: string }) => {
-    if (!authUser?.id) return;
+    if (!authUser?.uid) return;
     setLoading(prev => ({ ...prev, reports: true }));
     try {
       await addDoc(collection(db, 'reports'), {
         ...report,
-        userId: authUser.id,
+        userId: authUser.uid,
         status: 'new',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -3139,7 +3108,7 @@ setUserProfile({ id: safeId, email: safeEmail });
     const ProfileTabContent = () => (
       <ScrollView style={styles.tabContentContainer}>
         <View style={styles.sellerProfileContainer}>
-          {userProfile?.isSellerRequested && !userProfile.isSellerVerified ? (
+          {authUser?.isSellerRequested && !authUser.isSellerVerified ? (
             <>
               <Ionicons name="hourglass-outline" size={80} color="#FFC107" style={styles.sellerStatusIcon} />
               <Text style={styles.sellerStatusTitle}>Demande en cours</Text>
@@ -3170,12 +3139,12 @@ setUserProfile({ id: safeId, email: safeEmail });
               </View>
               <Text style={styles.sellerStatusText}>
                 Votre demande pour devenir vendeur est en cours de traitement.
-                {userProfile.paymentStatus === 'pending' && (
+                {authUser.paymentStatus === 'pending' && (
                   "\nPaiement en cours de validation..."
                 )}
               </Text>
             </>
-          ) : userProfile?.isSellerVerified ? (
+          ) : authUser?.isSellerVerified ? (
             <View style={{ alignItems: 'center', marginTop: 40 }}>
               <Ionicons name="checkmark-circle" size={80} color="#28A745" style={styles.sellerStatusIcon} />
               <Text style={styles.sellerStatusTitle}>Vous êtes vendeur vérifié !</Text>
@@ -3233,11 +3202,11 @@ setUserProfile({ id: safeId, email: safeEmail });
           <SettingsTab
             onLogout={handleLogout}
             onDeleteAccount={handleDeleteAccount}
-            userProfile={userProfile}
+                userProfile={authUser}
             updateProfileSettings={async (settings) => {
-              if (authUser?.id) {
-                await updateDoc(doc(db, 'users', authUser.id), settings);
-                setUserProfile(prev => prev ? { ...prev, ...settings } : null);
+                  if (authUser?.uid) {
+                    await updateDoc(doc(db, 'users', authUser.uid), settings);
+                    // No need to set state locally, AuthContext listener will do it.
               }
             }}
             onChangePassword={() => Alert.alert('Fonction non disponible', 'La modification du mot de passe n\'est pas encore implémentée.')}
@@ -3255,8 +3224,8 @@ setUserProfile({ id: safeId, email: safeEmail });
       <ScrollView style={styles.container}>
         <View style={styles.header}>
           <View style={styles.avatarContainer}>
-            {userProfile?.photoUrl ? (
-              <Image source={{ uri: userProfile.photoUrl }} style={styles.avatar} />
+            {authUser?.photoUrl ? (
+              <Image source={{ uri: authUser.photoUrl }} style={styles.avatar} />
             ) : (
               <View style={styles.avatarPlaceholder}>
                 <Ionicons name="person" size={60} color="#ccc" />
@@ -3264,9 +3233,9 @@ setUserProfile({ id: safeId, email: safeEmail });
             )}
           </View>
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>{userProfile?.name || 'Utilisateur'}</Text>
+            <Text style={styles.userName}>{authUser?.name || 'Utilisateur'}</Text>
 
-            <Text style={styles.userEmail}>{userProfile?.email}</Text>
+            <Text style={styles.userEmail}>{authUser?.email}</Text>
           </View>
           <TouchableOpacity style={styles.editProfileButton} onPress={handleEditProfile}>
             <Ionicons name="create-outline" size={20} color="#6C63FF" />
@@ -3319,7 +3288,7 @@ setUserProfile({ id: safeId, email: safeEmail });
           visible={productModalVisible}
           onClose={() => setProductModalVisible(false)}
           product={selectedProduct}
-          sellerId={authUser?.id || ''}
+          sellerId={authUser?.uid || ''}
           onProductSaved={() => {
             setProductModalVisible(false);
           }}
@@ -3334,7 +3303,7 @@ setUserProfile({ id: safeId, email: safeEmail });
         <EditProfileModal
           visible={editProfileModalVisible}
           onClose={() => setEditProfileModalVisible(false)}
-          userProfile={userProfile}
+          userProfile={authUser}
           onSave={handleSaveProfile}
           loading={loading.profileEdit}
         />
