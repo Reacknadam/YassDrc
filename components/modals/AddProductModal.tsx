@@ -195,18 +195,19 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ visible, onClose, onP
                 </TouchableOpacity>
               ))}
             </View>
-            <Text style={styles.inputLabel}>Ville</Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={city}
-                onValueChange={(itemValue) => setCity(itemValue)}
-                style={styles.picker}
-              >
-                {cities.map((c) => (
-                  <Picker.Item key={c} label={c} value={c} />
-                ))}
-              </Picker>
-            </View>
+            {/* Ville */}
+<Text style={styles.label}>Ville</Text>
+<View style={styles.grid}>
+  {cities.map((c) => (
+    <TouchableOpacity
+      key={c}
+      style={[styles.chip, city === c && styles.chipActive]}
+      onPress={() => setCity(c)}
+    >
+      <Text style={[styles.chipText, city === c && styles.chipTextActive]}>{c}</Text>
+    </TouchableOpacity>
+  ))}
+</View>
             <Text style={styles.inputLabel}>Images (max 3)</Text>
             <View style={styles.imageButtonsContainer}>
               <TouchableOpacity style={styles.imageButton} onPress={takePhoto}>
