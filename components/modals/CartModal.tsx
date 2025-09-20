@@ -1,4 +1,5 @@
 import { CartItem } from '../../types';
+import { useRouter } from 'expo-router';
 import { AntDesign, Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
@@ -21,7 +22,7 @@ interface CartModalProps {
   onPlaceOrder: (sellerId: string, items: CartItem[], totalAmount: number) => void;
   loadingOrder: string | null;
 }
-
+const router = useRouter();
 const CartModal: React.FC<CartModalProps> = ({
   visible,
   onClose,
@@ -66,8 +67,17 @@ const CartModal: React.FC<CartModalProps> = ({
                   <Text style={styles.sellerNameText}>{items[0].sellerName}</Text>
                   <TouchableOpacity
                     style={[styles.checkoutBtn, loadingOrder === sellerId && { backgroundColor: '#ccc' }]}
-                    onPress={() => onPlaceOrder(sellerId, items, items.reduce((sum, i) => sum + i.price * i.quantity, 0))}
-                    disabled={loadingOrder !== null}
+                 onPress={() => {
+                      const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+                      router.push({
+                        pathname: '/pay',
+                        params: {
+                          orderId: 'temp',
+                          totalAmount: String(total),
+                          sellerId,
+                        },
+                      });
+                    }}
                   >
                     {loadingOrder === sellerId ? (
                       <ActivityIndicator color="#fff" />
@@ -85,7 +95,7 @@ const CartModal: React.FC<CartModalProps> = ({
                     </View>
                     <View style={styles.cartItemControls}>
                       <TouchableOpacity onPress={() => onUpdateQuantity(item.id, item.quantity - 1)}>
-                        <AntDesign name="minuscircleo" size={24} color="#888" />
+                        <AntDesign name="minus" size={24} color="#888" />
                       </TouchableOpacity>
                       <Text style={styles.cartItemQuantity}>{item.quantity}</Text>
                       <TouchableOpacity onPress={() => onUpdateQuantity(item.id, item.quantity + 1)}>
