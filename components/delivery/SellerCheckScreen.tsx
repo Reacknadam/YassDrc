@@ -76,7 +76,7 @@ const { height } = Dimensions.get('window');
 
 // Main Component
 const SellerCheckScreen: React.FC = () => {
-  const { authUser } = useAuth();
+  const { authUser, loading: authLoading } = useAuth();
   const { location, error: locationError } = useLiveLocation(true);
   const appState = useAppState();
   const [paymentVisible, setPaymentVisible] = useState(false);
@@ -667,6 +667,27 @@ const SellerCheckScreen: React.FC = () => {
       default: return '#6B7280'; // Gray
     }
   };
+
+  if (authLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#4F46E5" />
+        <Text style={styles.loadingText}>Vérification de l'authentification...</Text>
+      </View>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Ionicons name="log-in-outline" size={64} color="#CBD5E1" />
+        <Text style={styles.emptyStateText}>Connexion requise</Text>
+        <Text style={styles.emptyStateSubtext}>
+          Veuillez vous connecter pour accéder à cet écran.
+        </Text>
+      </View>
+    );
+  }
 
   if (loading) {
     return (

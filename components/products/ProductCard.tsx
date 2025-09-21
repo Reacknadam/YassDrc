@@ -106,9 +106,17 @@ const ProductCard: React.FC<ProductCardProps> = ({
                 <Ionicons name="person" size={12} color="#888" />
               </View>
             )}
-            <Text style={styles.sellerNameText} numberOfLines={1}>
-              {product.sellerName}
-            </Text>
+            <View style={styles.sellerTextContainer}>
+              <Text style={styles.sellerNameText} numberOfLines={1}>
+                {product.sellerName}
+              </Text>
+              {product.city && (
+                <View style={styles.locationContainer}>
+                  <Ionicons name="location-outline" size={10} color="#888" />
+                  <Text style={styles.locationText}>{product.city}</Text>
+                </View>
+              )}
+            </View>
           </View>
         </View>
       </TouchableOpacity>
@@ -198,11 +206,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 6,
   },
+
   sellerAvatar: {
     width: 18,
     height: 18,
     borderRadius: 9,
-    marginRight: 5,
   },
   sellerAvatarPlaceholder: {
     width: 18,
@@ -211,12 +219,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#eee',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 5,
+  },
+  sellerTextContainer: {
+    flex: 1,
+    marginLeft: 5,
   },
   sellerNameText: {
     fontSize: 11,
     color: '#888',
-    flexShrink: 1,
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  locationText: {
+    fontSize: 10,
+    color: '#888',
+    marginLeft: 2,
   },
   starRating: {
     flexDirection: 'row',

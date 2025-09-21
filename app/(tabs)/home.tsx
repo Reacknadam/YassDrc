@@ -44,6 +44,7 @@ import ReviewModal from '../../components/modals/ReviewModal';
 import SellerDashboardModal from '../../components/modals/SellerDashboardModal';
 import SellerProductsModal from '../../components/modals/SellerProductsModal';
 import ProductCard from '../../components/products/ProductCard';
+import CityFilterModal from '../../components/modals/CityFilterModal';
 
 // ── CONSTANTES COULEURS (à la place du thème) ────────────────────────────────
 const COLORS = {
@@ -94,6 +95,7 @@ const HomeScreenHeader: React.FC<any> = ({
   activeCategory,
   setActiveCategory,
   categories,
+  onCityFilterPress,
 }) => (
   <>
     <View style={[styles.header, { backgroundColor: COLORS.background }]}>
@@ -102,7 +104,6 @@ const HomeScreenHeader: React.FC<any> = ({
         <Text style={[styles.subGreeting, { color: COLORS.textSecondary }]}>Découvrez nos produits</Text>
       </View>
 
-      {/* Bouton panier uniquement */}
       <TouchableOpacity onPress={onCartPress} style={styles.cartIcon}>
         <Feather name="shopping-bag" size={26} color={COLORS.text} />
         {cartItemCount > 0 && (
@@ -113,7 +114,6 @@ const HomeScreenHeader: React.FC<any> = ({
       </TouchableOpacity>
     </View>
 
-    {/* Recherche + filtre ville (sans thème) */}
     <View style={styles.searchAndFilterContainer}>
       <View style={[styles.searchContainer, { backgroundColor: COLORS.card }]}>
         <Feather name="search" size={20} color={COLORS.textSecondary} style={styles.searchIcon} />
@@ -126,14 +126,15 @@ const HomeScreenHeader: React.FC<any> = ({
         />
       </View>
 
-      {/* Picker ville (sans thème) */}
-      <View style={[styles.pickerContainer, { backgroundColor: COLORS.card }]}>
-        {/* Tu peux virer ce Picker aussi si tu veux */}
-        <Text style={{ color: COLORS.textSecondary, paddingLeft: 12 }}>{cityFilter}</Text>
-      </View>
+      <TouchableOpacity
+        style={[styles.pickerContainer, { backgroundColor: COLORS.card }]}
+        onPress={onCityFilterPress}
+      >
+        <Feather name="map-pin" size={16} color={COLORS.textSecondary} />
+        <Text style={{ color: COLORS.textSecondary, marginLeft: 8 }}>{cityFilter}</Text>
+      </TouchableOpacity>
     </View>
 
-    {/* Catégories */}
     <View style={styles.section}>
       <Text style={[styles.sectionTitle, { color: COLORS.text }]}>Catégories</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryContainer}>
@@ -181,6 +182,7 @@ export default function HomeScreen() {
   const [sellerDashboardModalVisible, setSellerDashboardModalVisible] = useState(false);
 const [reviewModalVisible, setReviewModalVisible] = useState(false);
 const [sellerProductsModalVisible, setSellerProductsModalVisible] = useState(false);
+const [cityModalVisible, setCityModalVisible] = useState(false);
 const [loadingOrders, setLoadingOrders] = useState(false);
 
 const [myOrders, setMyOrders] = useState<any[]>([]);
@@ -376,6 +378,7 @@ const [sellerProducts, setSellerProducts] = useState<Product[]>([]);
             activeCategory={activeCategory}
             setActiveCategory={setActiveCategory}
             categories={categories}
+            onCityFilterPress={() => setCityModalVisible(true)}
           />
         }
         ListEmptyComponent={renderListEmpty}
@@ -408,6 +411,17 @@ const [sellerProducts, setSellerProducts] = useState<Product[]>([]);
 <MyOrdersModal visible={myOrdersModalVisible} onClose={() => setMyOrdersModalVisible(false)} orders={myOrders} loading={loadingOrders} />
 <SellerDashboardModal visible={sellerDashboardModalVisible} onClose={() => setSellerDashboardModalVisible(false)} products={sellerProducts} />
 <ReviewModal visible={reviewModalVisible} onClose={() => setReviewModalVisible(false)} productName={selectedProduct?.name||''} onSubmit={submitReview} />
+
+      <CityFilterModal
+        visible={cityModalVisible}
+        cities={cities}
+        currentCity={cityFilter}
+        onClose={() => setCityModalVisible(false)}
+        onSelectCity={(city) => {
+          setCityFilter(city);
+          setCityModalVisible(false);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -467,9 +481,11 @@ const styles = StyleSheet.create({
   searchIcon: { marginRight: S.spacing.sm },
   searchInput: { flex: 1, height: '100%', fontSize: 16 },
   pickerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: S.spacing.md,
     borderRadius: S.radius.md,
     height: 50,
-    justifyContent: 'center',
     overflow: 'hidden',
     ...S.shadows.soft,
   },

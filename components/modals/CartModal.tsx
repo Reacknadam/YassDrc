@@ -99,7 +99,7 @@ const CartModal: React.FC<CartModalProps> = ({
                       </TouchableOpacity>
                       <Text style={styles.cartItemQuantity}>{item.quantity}</Text>
                       <TouchableOpacity onPress={() => onUpdateQuantity(item.id, item.quantity + 1)}>
-                        <AntDesign name="pluscircleo" size={24} color="#6C63FF" />
+                        <AntDesign name="plus" size={24} color="#6C63FF" />
                       </TouchableOpacity>
                     </View>
                   </View>

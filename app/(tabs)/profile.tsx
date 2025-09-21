@@ -2289,6 +2289,18 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ onLogout, onDeleteAccount, us
         </View>
         <Ionicons name="chevron-forward" size={20} color="#ccc" />
       </TouchableOpacity>
+
+      <Text style={styles.sectionTitle}>Accès rapide</Text>
+      <TouchableOpacity style={styles.settingItem} onPress={() => router.push('/driver')}>
+        <View style={styles.settingLeft}>
+          <View style={styles.settingIcon}>
+            <Ionicons name="car-sport-outline" size={24} color="#6C63FF" />
+          </View>
+          <Text style={styles.settingText}>Espace Livreur</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#ccc" />
+      </TouchableOpacity>
+
       <Text style={styles.sectionTitle}>Danger Zone</Text>
       <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
         <Text style={styles.submitButtonText}>Se déconnecter</Text>

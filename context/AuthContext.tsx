@@ -7,8 +7,9 @@ import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import { supabase } from '../supabase/client';
 import { Session } from '@supabase/supabase-js';
-import { db } from '../firebase/config';
+import { db, functions } from '../firebase/config';
 import { doc, onSnapshot, setDoc, updateDoc, Timestamp, deleteDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 
 export interface AppUser {
   uid: string;
@@ -108,8 +109,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setIsSeller(false);
         }
         setLoading(false);
-      }, (error) => {
-        console.error("Error listening to user profile:", error);
+      }, (err) => {
+        console.error("Error listening to user profile:", err);
+        setError("Impossible de charger votre profil. Vérifiez votre connexion internet.");
         setLoading(false);
         setAuthUser(null);
       });
@@ -201,31 +203,31 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const deleteUserAccount = async () => {
     Alert.alert(
       'Supprimer le compte',
-      'Es-tu sûr ? Cette action est irréversible.',
+      'Es-tu sûr ? Cette action est irréversible et supprimera toutes vos données.',
       [
         { text: 'Annuler', style: 'cancel' },
         {
           text: 'Supprimer',
           style: 'destructive',
           onPress: async () => {
+            if (!authUser?.uid) {
+              Alert.alert('Erreur', 'Vous devez être connecté pour supprimer un compte.');
+              return;
+            }
             try {
-              if (!authUser?.uid) {
-                Alert.alert('Erreur', 'Utilisateur non trouvé.');
-                return;
-              }
-              // 1. Supprime l’utilisateur chez Supabase (requires service_role key)
-              // This is a delicate operation. For now, we will focus on deleting data.
-              // const { error } = await supabase.auth.admin.deleteUser(authUser!.uid);
-              // if (error) throw error;
+              // Appelle la fonction cloud sécurisée
+              const deleteFunction = httpsCallable(functions, 'deleteUserAccount');
+              await deleteFunction();
 
-              // 2. Supprime le document user de firestore
-              await deleteDoc(doc(db, 'users', authUser.uid));
-
-              // 3. Déconnecte
+              // La fonction onAuthStateChange s'occupera de la redirection
+              // après la suppression de l'utilisateur dans Supabase.
+              // On peut forcer une déconnexion locale au cas où.
               await logout();
-              Alert.alert('Compte supprimé', 'Ton compte a été définitivement supprimé.');
+              Alert.alert('Compte supprimé', 'Votre compte a été définitivement supprimé.');
+
             } catch (err: any) {
-              Alert.alert('Erreur', err.message);
+              console.error("Erreur lors de la suppression du compte:", err);
+              Alert.alert('Erreur', err.message || 'Une erreur est survenue lors de la suppression du compte.');
             }
           },
         },

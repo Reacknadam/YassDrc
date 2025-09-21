@@ -1,10 +1,17 @@
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebase/config';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import  { useEffect, useRef, useState } from 'react';
-import * as React from 'react';
 import {
+  collection,
+  getDocs,
+  query,
+  limit,
+  startAfter,
+  orderBy,
+} from 'firebase/firestore';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -13,17 +20,30 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 
+/* ----------  CONFIG  ---------- */
 const WORKER_URL = 'https://agent.israelntalu328.workers.dev/chat';
 
+/* ----------  TYPES  ---------- */
 type Message = {
   id: string;
   sender: 'user' | 'bot';
   text: string;
 };
 
+type Product = {
+  id: string;
+  name: string;
+  price: number;
+  sellerName: string;
+  city: string;
+  category: string;
+  description?: string;
+};
+
+/* ----------  SCREEN  ---------- */
 export default function AssistantChatScreen() {
   const { authUser } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -31,24 +51,76 @@ export default function AssistantChatScreen() {
   const [loading, setLoading] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
-  // 🧠 Charge les produits au montage
+  /* 1️⃣  ONE-TIME LOAD of every product ------------------------------------ */
   useEffect(() => {
-    loadProducts();
+    loadAllProducts();
   }, []);
 
-  const loadProducts = async () => {
+  const loadAllProducts = async () => {
+    setLoading(true);
     try {
-      const snap = await getDocs(collection(db, 'products'));
-      const products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const products: Product[] = [];
+      let lastDoc: any = null;
+      const pageSize = 500; // max allowed by Firestore in a single round-trip
+
+      while (true) {
+        const q = lastDoc
+          ? query(
+              collection(db, 'products'),
+              orderBy('createdAt', 'desc'),
+              startAfter(lastDoc),
+              limit(pageSize)
+            )
+          : query(
+              collection(db, 'products'),
+              orderBy('createdAt', 'desc'),
+              limit(pageSize)
+            );
+
+        const snap = await getDocs(q);
+        if (snap.empty) break;
+
+        snap.forEach((d) => {
+          const data = d.data();
+          products.push({
+            id: d.id,
+            name: data.name || '',
+            price: data.price || 0,
+            sellerName: data.sellerName || '',
+            city: data.city || '',
+            category: data.category || '',
+            description: data.description || '',
+          });
+        });
+
+        lastDoc = snap.docs[snap.docs.length - 1];
+      }
+
+      /* 2️⃣  Build plain-text context */
+      const context =
+        products.length === 0
+          ? 'Aucun produit dans la base.'
+          : products
+              .map(
+                (p) =>
+                  `${p.name} | ${p.price} CDF | Vendeur: ${p.sellerName} | Ville: ${p.city} | Catégorie: ${p.category} | Desc: ${p.description}`
+              )
+              .join('\n');
+
       addBotMessage(
-        `J’ai chargé ${products.length} produits. Que puis-je faire pour vous ?`
+        `J’ai chargé ${products.length} produits. Voici quelques-uns :\n${context
+          .split('\n')
+          .slice(0, 5)
+          .join('\n')}\n\nDemandez-moi n’importe quoi (recherche, fiabilité, prix, etc.)`
       );
-      showQuickActions();
     } catch (e: any) {
       addBotMessage(`Erreur chargement produits : ${e.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
+  /* ----------  CHAT UTILS  ---------- */
   const addMessage = (msg: Message) => {
     setMessages((m) => [...m, msg]);
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 200);
@@ -60,23 +132,27 @@ export default function AssistantChatScreen() {
   const addBotMessage = (text: string) =>
     addMessage({ id: (Date.now() + 1).toString(), sender: 'bot', text });
 
-  const showQuickActions = () => {
-    const actions = [
-      'Rechercher un produit',
-      'Vérifier la fiabilité d’un vendeur',
-      'Aide sur la plateforme',
-      'Faire une réclamation',
-    ];
-    actions.forEach((a) => addBotMessage(`📌 ${a}`));
-  };
-
+  /* ----------  SEND TO WORKER  ---------- */
   const sendToWorker = async (userText: string) => {
     setLoading(true);
     addUserMessage(userText);
-    const body = {
-      user_id: authUser?.id || 'anonymous',
-      message: userText,
-    };
+
+    /* Build full context again (we keep it in state to avoid re-reading) */
+    const fullContext = messages
+      .find((m) => m.sender === 'bot' && m.text.includes('J’ai chargé'))
+      ?.text.split('\n')
+      .slice(1, -3) // remove header & footer
+      .join('\n');
+
+      const body = {
+        user_id: authUser?.id || 'anonymous',
+        message: userText,
+        context: products.map(p =>
+          `${p.name} | ${p.price} CDF | Vendeur: ${p.sellerName} | Ville: ${p.city} | Catégorie: ${p.category} | Desc: ${p.description}`
+        ).join('\n'),
+      };
+
+      
     try {
       const res = await fetch(WORKER_URL, {
         method: 'POST',
@@ -84,7 +160,7 @@ export default function AssistantChatScreen() {
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (data.reply) handleWorkerReply(data.reply);
+      addBotMessage(data.reply || 'Pas de réponse du serveur.');
     } catch (e: any) {
       addBotMessage(`Erreur serveur : ${e.message}`);
     } finally {
@@ -92,73 +168,22 @@ export default function AssistantChatScreen() {
     }
   };
 
-  const handleWorkerReply = (reply: string) => {
-    try {
-      const json = JSON.parse(reply);
-      if (json.name && json.price) {
-        addBotMessage(
-          `📦 ${json.name}\n💰 ${json.price} FC\n🧑‍🌾 ${json.sellerName}\n${json.description}`
-        );
-        return;
-      }
-      if (json.seller_name && json.rating_score !== undefined) {
-        const fiabilite = json.is_reliable ? '✅ fiable' : '⚠️ peu fiable';
-        addBotMessage(
-          `Vendeur : ${json.seller_name}\nNote : ${json.rating_score}/10\n→ ${fiabilite}`
-        );
-        return;
-      }
-    } catch {
-      // Pas du JSON → texte brut
-      addBotMessage(reply);
-    }
-  };
-
-  const handleFiabilite = async (text: string) => {
-    const m = text.toLowerCase().match(/vendeur\s(.+)/i);
-    if (!m || !m[1]) {
-      addBotMessage('Veuillez préciser le nom du vendeur.');
-      return;
-    }
-    const name = m[1].trim();
-    try {
-      const q = query(collection(db, 'users'), where('name', '==', name));
-      const snap = await getDocs(q);
-      if (snap.empty) {
-        addBotMessage(`Aucun vendeur "${name}" trouvé.`);
-        return;
-      }
-      const data = snap.docs[0].data();
-      const score = data.rating_score ?? null;
-      const reliable = score !== null && score >= 7.5;
-      addBotMessage(
-        `Vendeur : ${name}\nNote : ${score ?? 'N/A'}/10\n→ ${
-          reliable ? '✅ fiable' : '⚠️ peu fiable'
-        }`
-      );
-    } catch (e: any) {
-      addBotMessage(`Erreur : ${e.message}`);
-    }
-  };
-
+  /* ----------  INPUT HANDLING  ---------- */
   const onSend = () => {
     const trimmed = input.trim();
     if (!trimmed) return;
     setInput('');
-
-    if (trimmed.toLowerCase().includes('fiabilité')) {
-      handleFiabilite(trimmed);
-      return;
-    }
     sendToWorker(trimmed);
   };
 
+  /* ----------  RENDER  ---------- */
   const renderItem = ({ item }: { item: Message }) => (
     <View
       style={[
         styles.bubble,
         item.sender === 'user' ? styles.userBubble : styles.botBubble,
-      ]}>
+      ]}
+    >
       <Text style={item.sender === 'user' ? styles.userText : styles.botText}>
         {item.text}
       </Text>
@@ -169,7 +194,8 @@ export default function AssistantChatScreen() {
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -179,11 +205,17 @@ export default function AssistantChatScreen() {
           onContentSizeChange={() =>
             flatListRef.current?.scrollToEnd({ animated: true })
           }
+          ListFooterComponent={
+            loading ? (
+              <ActivityIndicator size="small" color="#6a82fb" style={{ marginVertical: 10 }} />
+            ) : null
+          }
         />
+
         <View style={styles.inputRow}>
           <TextInput
             style={styles.input}
-            placeholder="Écrivez votre message..."
+            placeholder="Posez votre question..."
             value={input}
             onChangeText={setInput}
             onSubmitEditing={onSend}
@@ -193,7 +225,8 @@ export default function AssistantChatScreen() {
           <TouchableOpacity
             style={[styles.sendBtn, loading && styles.sendBtnDisabled]}
             onPress={onSend}
-            disabled={loading}>
+            disabled={loading}
+          >
             <Ionicons name="send" size={22} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -202,6 +235,7 @@ export default function AssistantChatScreen() {
   );
 }
 
+/* ----------  STYLES  ---------- */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   list: { paddingHorizontal: 16, paddingBottom: 16 },
