@@ -1,0 +1,6 @@
+# Netlify redirects file
+# Redirect all requests to index.html to handle SPA routing
+/*    /index.html   200
+
+# Handle the --auth path specifically
+/--auth    /index.html   200

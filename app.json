@@ -5,12 +5,19 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "yass",
+    "scheme": ["yass", "exp"],
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.israelltd.yass",
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": ["yass", "exp"]
+          }
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +29,14 @@
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
       ],
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [{ "scheme": "yass" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -30,7 +44,6 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-    
       [
         "expo-splash-screen",
         {
@@ -54,7 +67,7 @@
             "composeCompilerVersion": "1.5.11"
           }
         }
-      ],
+      ]
     ],
     "experiments": {
       "typedRoutes": true

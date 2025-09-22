@@ -1,4 +1,4 @@
-import { firestore } from '../firebase/config';
+import { db } from '../firebase/config';
 import { Product } from '../types';
 import {
   collection,
@@ -43,7 +43,7 @@ export const useProductsAndSellers = (filters: ProductFilters) => {
     }
 
     try {
-      const productsQuery = collection(firestore, 'products');
+      const productsQuery = collection(db, 'products');
       let q;
 
       if (search.trim()) {

@@ -1,5 +1,3 @@
-import { useAuth } from '../../context/AuthContext';
-import { db, storage } from '../../firebase/config';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePickerExpo from 'expo-image-picker';
@@ -43,6 +41,8 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { useAuth } from '../../context/AuthContext';
+import { db, storage } from '../../firebase/config';
 
 // =================================================================================
 // CONSTANTES
@@ -1674,7 +1674,7 @@ const SellerFormModal: React.FC<SellerFormModalProps> = ({
   const provincesRDC = [
     "Bas-Uele", "Haut-Uele", "Ituri", "Nord-Kivu", "Sud-Kivu",
     "Équateur", "Tshuapa", "Mongala", "Nord-Ubangi", "Sud-Ubangi",
-    "Kasaï", "Kasaï-Central", "Kasaï-Oriental", "Kwango", "Kwilu",
+    "Kasaï-Central", "Kasaï-Oriental", "Kwango", "Kwilu",
     "Mai-Ndombe", "Sankuru", "Maniema", "Haut-Lomami", "Lomami",
     "Tanganyika", "Haut-Katanga", "Lualaba", "Haut-Kasaï", "Kinshasa", "Kongo-Central"
   ];
@@ -1743,8 +1743,8 @@ const SellerFormModal: React.FC<SellerFormModalProps> = ({
                 selectedValue={sellerForm.location}
                 onValueChange={itemValue => setSellerForm(prev => ({ ...prev, location: itemValue }))}>
                 <Picker.Item label="Sélectionnez une province" value="" />
-                {provincesRDC.map(province => (
-                  <Picker.Item key={province} label={province} value={province} />
+                {provincesRDC.map((province, index) => (
+                  <Picker.Item key={`province-${index}-${province}`} label={province} value={province} />
                 ))}
               </Picker>
             </View>
@@ -1798,7 +1798,20 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ visible, onClose, u
   const [photoUrl, setPhotoUrl] = useState<string | null>(userProfile?.photoUrl || null);
   const [city, setCity] = useState(userProfile?.city || 'Kinshasa');
 
-  const cities = ['Kinshasa', 'Lubumbashi', 'Goma', 'Kisangani', 'Bukavu', 'Matadi', 'Kolwezi'];
+  // Liste complète des villes principales de la RDC
+  const cities = [
+    'Kinshasa', 'Lubumbashi', 'Mbuji-Mayi', 'Kananga', 'Kisangani', 'Bukavu', 'Goma', 'Matadi', 'Bunia', 'Likasi',
+    'Kolwezi', 'Tshikapa', 'Uvira', 'Boma', 'Kikwit', 'Mwene-Ditu', 'Isiro', 'Bandundu', 'Kindu', 'Gemena',
+    'Kalemie', 'Mbandaka', 'Butembo', 'Kamina', 'Beni', 'Gbadolite', 'Kipushi', 'Kasumbalesa', 'Baraka', 'Lodja',
+    'Kabinda', 'Mweka', 'Boende', 'Inongo', 'Lisala', 'Tshikapa', 'Mongbwalu', 'Aketi', 'Basankusu', 'Bondo',
+    'Bumba', 'Demba', 'Dilolo', 'Fizi', 'Gandajika', 'Kasongo', 'Kenge', 'Kiri', 'Luebo', 'Lusambo', 'Masina',
+    'Masi-Manimba', 'Mongala', 'Nioki', 'Popokabaka', 'Tshela', 'Zongo', 'Sakania', 'Kasenga', 'Pweto', 'Sandoa',
+    'Manono', 'Mitwaba', 'Kabalo', 'Bukama', 'Kambove', 'Moba', 'Kole', 'Dekese', 'Lodja', 'Lusambo', 'Kabare',
+    'Shabunda', 'Walungu', 'Idjwi', 'Kalehe', 'Masisi', 'Rutshuru', 'Nyiragongo', 'Lubero', 'Beni', 'Butembo',
+    'Aru', 'Arua', 'Mahagi', 'Djugu', 'Irumu', 'Mambasa', 'Aketi', 'Bondo', 'Yakoma', 'Libenge', 'Zongo', 'Gemena',
+    'Businga', 'Bosobolo', 'Mobayi-Mbongo', 'Bumba', 'Lisala', 'Bongandanga', 'Yahuma', 'Basankusu', 'Bolomba',
+    'Makanza', 'Bikoro', 'Ingende', 'Bolobo', 'Kutu', 'Nioki', 'Kiri', 'Oshwe', 'Mushie', 'Yumbi', 'Kwamouth'
+  ];
 
   const handlePickImage = useCallback(async () => {
     const { status } = await ImagePickerExpo.requestMediaLibraryPermissionsAsync();
@@ -1885,16 +1898,65 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ visible, onClose, u
             </View>
 
             <Text style={styles.inputLabel}>Ville</Text>
-            <View style={styles.pickerContainer}>
+            <View style={[
+              styles.pickerContainer,
+              {
+                backgroundColor: '#f9f9ff',
+                borderRadius: 12,
+                borderWidth: 1.5,
+                borderColor: city ? '#6C63FF' : '#ccc',
+                marginBottom: 20,
+                overflow: 'hidden',
+                shadowColor: '#6C63FF',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: city ? 0.08 : 0,
+                shadowRadius: 4,
+                elevation: city ? 2 : 0,
+              }
+            ]}>
               <Picker
                 selectedValue={city}
                 onValueChange={(itemValue) => setCity(itemValue)}
-                style={styles.picker}
+                style={[
+                  styles.picker,
+                  {
+                    height: 320,
+                    color: city ? '#222' : '#888',
+                    fontWeight: city ? 'bold' : 'normal',
+                    paddingLeft: 8,
+                  }
+                ]}
+                itemStyle={{ fontSize: 17 }}
+                dropdownIconColor="#6C63FF"
               >
+                <Picker.Item
+                  label="🏙️ Sélectionnez votre ville"
+                  value=""
+                  color="#888"
+                  style={{ fontStyle: 'italic', fontSize: 16 }}
+                />
                 {cities.map((c) => (
-                  <Picker.Item key={c} label={c} value={c} />
+                  <Picker.Item
+                    key={c}
+                    label={`📍 ${c}`}
+                    value={c}
+                    color="#333"
+                    style={{ fontSize: 16 }}
+                  />
                 ))}
               </Picker>
+              {city === "" && (
+                <Text style={{
+                  position: 'absolute',
+                  right: 12,
+                  top: 12,
+                  color: '#FF6347',
+                  fontSize: 13,
+                  fontStyle: 'italic'
+                }}>
+                  Obligatoire
+                </Text>
+              )}
             </View>
 
             <TouchableOpacity
@@ -2053,10 +2115,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({ products, onAddProduct, onEdi
     <View style={styles.tabContentContainer}>
       <View style={styles.productsHeader}>
         <Text style={styles.sectionTitle}>Vos Produits ({products.length})</Text>
-        <TouchableOpacity style={styles.addProductButton} onPress={onAddProduct}>
-          <Ionicons name="add-circle-outline" size={24} color="#fff" />
-          <Text style={styles.addProductButtonText}>Ajouter</Text>
-        </TouchableOpacity>
+      
       </View>
       {products.length > 0 ? (
         <FlatList
@@ -2305,9 +2364,7 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ onLogout, onDeleteAccount, us
       <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
         <Text style={styles.submitButtonText}>Se déconnecter</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.deleteAccountButton} onPress={onDeleteAccount}>
-        <Text style={styles.submitButtonText}>Supprimer le compte</Text>
-      </TouchableOpacity>
+   
     </ScrollView>
   );
 };
@@ -2915,8 +2972,8 @@ const Profile = () => {
           onPress: async () => {
             if (!authUser?.uid) return;
             try {
-              if (authUser?.sellerRequestId) {
-                await deleteDoc(doc(db, 'sellerRequests', authUser.sellerRequestId));
+              if ((authUser as any)?.sellerRequestId) {
+                await deleteDoc(doc(db, 'sellerRequests', (authUser as any).sellerRequestId));
               }
               await updateDoc(doc(db, 'users', authUser.uid), {
                 isSellerRequested: false,
@@ -3120,7 +3177,7 @@ const Profile = () => {
     const ProfileTabContent = () => (
       <ScrollView style={styles.tabContentContainer}>
         <View style={styles.sellerProfileContainer}>
-          {authUser?.isSellerRequested && !authUser.isSellerVerified ? (
+          {(authUser as any)?.isSellerRequested && !authUser.isSellerVerified ? (
             <>
               <Ionicons name="hourglass-outline" size={80} color="#FFC107" style={styles.sellerStatusIcon} />
               <Text style={styles.sellerStatusTitle}>Demande en cours</Text>
@@ -3151,7 +3208,7 @@ const Profile = () => {
               </View>
               <Text style={styles.sellerStatusText}>
                 Votre demande pour devenir vendeur est en cours de traitement.
-                {authUser.paymentStatus === 'pending' && (
+                {(authUser as any).paymentStatus === 'pending' && (
                   "\nPaiement en cours de validation..."
                 )}
               </Text>
@@ -3214,7 +3271,18 @@ const Profile = () => {
           <SettingsTab
             onLogout={handleLogout}
             onDeleteAccount={handleDeleteAccount}
-                userProfile={authUser}
+            userProfile={authUser ? {
+              ...authUser,
+              id: authUser.uid,
+              email: authUser.email || '',
+              name: authUser.name,
+              photoUrl: authUser.photoUrl || null,
+              phoneNumber: authUser.phoneNumber || null,
+              isSellerVerified: authUser.isSellerVerified,
+              city: authUser.city,
+              notificationsEnabled: false,
+              theme: 'light'
+            } : null}
             updateProfileSettings={async (settings) => {
                   if (authUser?.uid) {
                     await updateDoc(doc(db, 'users', authUser.uid), settings);
@@ -3315,7 +3383,7 @@ const Profile = () => {
         <EditProfileModal
           visible={editProfileModalVisible}
           onClose={() => setEditProfileModalVisible(false)}
-          userProfile={authUser}
+          userProfile={authUser ? { ...authUser, id: authUser.uid } : undefined}
           onSave={handleSaveProfile}
           loading={loading.profileEdit}
         />

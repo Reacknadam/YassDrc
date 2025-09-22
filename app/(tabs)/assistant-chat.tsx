@@ -1,17 +1,9 @@
 import { useAuth } from '../../context/AuthContext';
-import { db } from '../../firebase/config';
 import { Ionicons } from '@expo/vector-icons';
-import {
-  collection,
-  getDocs,
-  query,
-  limit,
-  startAfter,
-  orderBy,
-} from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -21,10 +13,21 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  ScrollView, // Ajout pour les chips
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /* ----------  CONFIG  ---------- */
 const WORKER_URL = 'https://agent.israelntalu328.workers.dev/chat';
+
+// ✅ Étape 5: Définition des boutons rapides (quick chips)
+const QUICK_CHIPS = [
+  'Smartphones pas chers',
+  'Promos du jour',
+  'Besoin d\'un laptop',
+  'Électronique',
+  'Mode femme',
+];
 
 /* ----------  TYPES  ---------- */
 type Message = {
@@ -33,92 +36,20 @@ type Message = {
   text: string;
 };
 
-type Product = {
-  id: string;
-  name: string;
-  price: number;
-  sellerName: string;
-  city: string;
-  category: string;
-  description?: string;
-};
-
 /* ----------  SCREEN  ---------- */
 export default function AssistantChatScreen() {
   const { authUser } = useAuth();
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Message de bienvenue par défaut, comme demandé
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: 'welcome-1',
+      sender: 'bot',
+      text: '👋 Bienvenue chez Yass-DRC ! Je suis là pour vous aider à trouver le produit parfait. Que cherchez-vous aujourd\'hui ?',
+    },
+  ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const flatListRef = useRef<FlatList>(null);
-
-  /* 1️⃣  ONE-TIME LOAD of every product ------------------------------------ */
-  useEffect(() => {
-    loadAllProducts();
-  }, []);
-
-  const loadAllProducts = async () => {
-    setLoading(true);
-    try {
-      const products: Product[] = [];
-      let lastDoc: any = null;
-      const pageSize = 500; // max allowed by Firestore in a single round-trip
-
-      while (true) {
-        const q = lastDoc
-          ? query(
-              collection(db, 'products'),
-              orderBy('createdAt', 'desc'),
-              startAfter(lastDoc),
-              limit(pageSize)
-            )
-          : query(
-              collection(db, 'products'),
-              orderBy('createdAt', 'desc'),
-              limit(pageSize)
-            );
-
-        const snap = await getDocs(q);
-        if (snap.empty) break;
-
-        snap.forEach((d) => {
-          const data = d.data();
-          products.push({
-            id: d.id,
-            name: data.name || '',
-            price: data.price || 0,
-            sellerName: data.sellerName || '',
-            city: data.city || '',
-            category: data.category || '',
-            description: data.description || '',
-          });
-        });
-
-        lastDoc = snap.docs[snap.docs.length - 1];
-      }
-
-      /* 2️⃣  Build plain-text context */
-      const context =
-        products.length === 0
-          ? 'Aucun produit dans la base.'
-          : products
-              .map(
-                (p) =>
-                  `${p.name} | ${p.price} CDF | Vendeur: ${p.sellerName} | Ville: ${p.city} | Catégorie: ${p.category} | Desc: ${p.description}`
-              )
-              .join('\n');
-
-      addBotMessage(
-        `J’ai chargé ${products.length} produits. Voici quelques-uns :\n${context
-          .split('\n')
-          .slice(0, 5)
-          .join('\n')}\n\nDemandez-moi n’importe quoi (recherche, fiabilité, prix, etc.)`
-      );
-    } catch (e: any) {
-      addBotMessage(`Erreur chargement produits : ${e.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   /* ----------  CHAT UTILS  ---------- */
   const addMessage = (msg: Message) => {
@@ -132,37 +63,61 @@ export default function AssistantChatScreen() {
   const addBotMessage = (text: string) =>
     addMessage({ id: (Date.now() + 1).toString(), sender: 'bot', text });
 
-  /* ----------  SEND TO WORKER  ---------- */
+  /* ----------  QUERY LIMIT (inchangé) ---------- */
+  const checkQueryLimit = async (): Promise<boolean> => {
+    if (authUser?.isSellerVerified) return true;
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const usageStr = await AsyncStorage.getItem('@ai_query_usage');
+      const usage = usageStr ? JSON.parse(usageStr) : { count: 0, date: today };
+      if (usage.date !== today) {
+        await AsyncStorage.setItem('@ai_query_usage', JSON.stringify({ count: 1, date: today }));
+        return true;
+      }
+      if (usage.count >= 10) {
+        Alert.alert('Limite atteinte', 'Vous avez atteint votre limite de 10 requêtes gratuites. Les vendeurs vérifiés bénéficient de requêtes illimitées.');
+        return false;
+      }
+      await AsyncStorage.setItem('@ai_query_usage', JSON.stringify({ ...usage, count: usage.count + 1 }));
+      return true;
+    } catch (error) {
+      Alert.alert('Erreur', 'Impossible de vérifier votre limite de requêtes.');
+      return false;
+    }
+  };
+
+  /* ----------  SEND TO WORKER (simplifié) ---------- */
   const sendToWorker = async (userText: string) => {
+    if (userText.trim().length === 0) return;
+
     setLoading(true);
     addUserMessage(userText);
 
-    /* Build full context again (we keep it in state to avoid re-reading) */
-    const fullContext = messages
-      .find((m) => m.sender === 'bot' && m.text.includes('J’ai chargé'))
-      ?.text.split('\n')
-      .slice(1, -3) // remove header & footer
-      .join('\n');
+    const canQuery = await checkQueryLimit();
+    if (!canQuery) {
+      setLoading(false);
+      return;
+    }
 
-      const body = {
-        user_id: authUser?.id || 'anonymous',
-        message: userText,
-        context: products.map(p =>
-          `${p.name} | ${p.price} CDF | Vendeur: ${p.sellerName} | Ville: ${p.city} | Catégorie: ${p.category} | Desc: ${p.description}`
-        ).join('\n'),
-      };
+    // Le 'context' est maintenant géré par le worker, on envoie un body simple.
+    const body = {
+      user_id: authUser?.uid || 'anonymous',
+      message: userText,
+    };
 
-      
     try {
       const res = await fetch(WORKER_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      if (!res.ok) throw new Error(`Le serveur a répondu: ${res.status}`);
+      
       const data = await res.json();
-      addBotMessage(data.reply || 'Pas de réponse du serveur.');
+      addBotMessage(data.reply || 'Désolé, je n\'ai pas de réponse pour le moment.');
     } catch (e: any) {
-      addBotMessage(`Erreur serveur : ${e.message}`);
+      addBotMessage(`Oups, une erreur de communication est survenue. Veuillez réessayer.`);
+      Alert.alert('Erreur de communication', e.message);
     } finally {
       setLoading(false);
     }
@@ -171,22 +126,20 @@ export default function AssistantChatScreen() {
   /* ----------  INPUT HANDLING  ---------- */
   const onSend = () => {
     const trimmed = input.trim();
-    if (!trimmed) return;
+    if (!trimmed || loading) return;
     setInput('');
     sendToWorker(trimmed);
   };
 
+  const onChipPress = (chipText: string) => {
+    if (loading) return;
+    sendToWorker(chipText);
+  }
+
   /* ----------  RENDER  ---------- */
   const renderItem = ({ item }: { item: Message }) => (
-    <View
-      style={[
-        styles.bubble,
-        item.sender === 'user' ? styles.userBubble : styles.botBubble,
-      ]}
-    >
-      <Text style={item.sender === 'user' ? styles.userText : styles.botText}>
-        {item.text}
-      </Text>
+    <View style={[styles.bubble, item.sender === 'user' ? styles.userBubble : styles.botBubble]}>
+      <Text style={item.sender === 'user' ? styles.userText : styles.botText}>{item.text}</Text>
     </View>
   );
 
@@ -195,6 +148,7 @@ export default function AssistantChatScreen() {
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={90}
       >
         <FlatList
           ref={flatListRef}
@@ -202,15 +156,23 @@ export default function AssistantChatScreen() {
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
-          onContentSizeChange={() =>
-            flatListRef.current?.scrollToEnd({ animated: true })
-          }
           ListFooterComponent={
-            loading ? (
+            loading && messages.length > 0 ? (
               <ActivityIndicator size="small" color="#6a82fb" style={{ marginVertical: 10 }} />
             ) : null
           }
         />
+
+        {/* ✅ Étape 5 (suite): Affichage des quick chips */}
+        <View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsContainer}>
+            {QUICK_CHIPS.map((chip) => (
+              <TouchableOpacity key={chip} style={styles.chip} onPress={() => onChipPress(chip)} disabled={loading}>
+                <Text style={styles.chipText}>{chip}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
 
         <View style={styles.inputRow}>
           <TextInput
@@ -222,11 +184,7 @@ export default function AssistantChatScreen() {
             returnKeyType="send"
             blurOnSubmit={false}
           />
-          <TouchableOpacity
-            style={[styles.sendBtn, loading && styles.sendBtnDisabled]}
-            onPress={onSend}
-            disabled={loading}
-          >
+          <TouchableOpacity style={[styles.sendBtn, loading && styles.sendBtnDisabled]} onPress={onSend} disabled={loading}>
             <Ionicons name="send" size={22} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -238,26 +196,18 @@ export default function AssistantChatScreen() {
 /* ----------  STYLES  ---------- */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  list: { paddingHorizontal: 16, paddingBottom: 16 },
+  list: { paddingHorizontal: 16, paddingTop: 16 },
   bubble: {
-    maxWidth: '80%',
+    maxWidth: '85%',
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 16,
     marginVertical: 4,
   },
-  userBubble: {
-    backgroundColor: '#E2F5FF',
-    alignSelf: 'flex-end',
-    borderBottomRightRadius: 4,
-  },
-  botBubble: {
-    backgroundColor: '#F0F0F0',
-    alignSelf: 'flex-start',
-    borderBottomLeftRadius: 4,
-  },
-  userText: { color: '#005a9c' },
-  botText: { color: '#333' },
+  userBubble: { backgroundColor: '#E2F5FF', alignSelf: 'flex-end', borderBottomRightRadius: 4 },
+  botBubble: { backgroundColor: '#F0F0F0', alignSelf: 'flex-start', borderBottomLeftRadius: 4 },
+  userText: { color: '#005a9c', fontSize: 16 },
+  botText: { color: '#333', fontSize: 16 },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -265,11 +215,13 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderTopWidth: 1,
     borderColor: '#E0E0E0',
+    backgroundColor: '#fff',
   },
   input: {
     flex: 1,
+    backgroundColor: '#f0f0f0',
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: '#e0e0e0',
     borderRadius: 24,
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -277,12 +229,28 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#6a82fb',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 44, height: 44, borderRadius: 22, backgroundColor: '#6a82fb',
+    justifyContent: 'center', alignItems: 'center',
   },
   sendBtnDisabled: { backgroundColor: '#a0a0a0' },
+  // Styles pour les quick chips
+  chipsContainer: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  chip: {
+    backgroundColor: '#F0F0F0',
+    borderRadius: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    marginHorizontal: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  chipText: {
+    color: '#333',
+    fontSize: 14,
+  },
 });

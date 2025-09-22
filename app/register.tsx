@@ -7,6 +7,7 @@ import {
   Alert,
   Keyboard,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   SafeAreaView,
   StyleSheet,
@@ -28,6 +29,11 @@ export default function RegisterScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  // State for showing the credentials modal
+  const [showCredentialsModal, setShowCredentialsModal] = useState(false);
+  // Store the credentials to show in the modal
+  const [credentials, setCredentials] = useState({ name: '', email: '', password: '' });
+
   useEffect(() => {
     return () => {
       setError(null);
@@ -47,10 +53,20 @@ export default function RegisterScreen() {
     const success = await register(name, email, password);
     setLocalLoading(false); // ← remet actif immédiatement
     if (success) {
-      console.log('Register error:', authError);
-      Alert.alert("Succès", "Votre compte a été créé. Vous pouvez maintenant vous connecter.");
-      router.replace('/login');
+      // Affiche la pop-up avec les infos de connexion
+      setCredentials({ name, email, password });
+      setShowCredentialsModal(true);
     }
+  };
+
+  // Quand l'utilisateur ferme la pop-up, on le redirige vers le login
+  const handleCloseModal = () => {
+    setShowCredentialsModal(false);
+    Alert.alert(
+      "Succès",
+      "Votre compte a été créé. Vous pouvez maintenant vous connecter."
+    );
+    router.replace('/login');
   };
 
   return (
@@ -129,16 +145,16 @@ export default function RegisterScreen() {
               </View>
               
               <TouchableOpacity
-  style={[styles.button, styles.registerButton]}
-  onPress={handleRegister}
-  disabled={localLoading}
->
-  {localLoading ? (
-    <ActivityIndicator color="#FFF" />
-  ) : (
-    <Text style={styles.buttonText}>S'inscrire</Text>
-  )}
-</TouchableOpacity>
+                style={[styles.button, styles.registerButton]}
+                onPress={handleRegister}
+                disabled={localLoading}
+              >
+                {localLoading ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={styles.buttonText}>S'inscrire</Text>
+                )}
+              </TouchableOpacity>
             </View>
 
             <View style={styles.footer}>
@@ -147,6 +163,43 @@ export default function RegisterScreen() {
                 <Text style={styles.loginLink}>Se connecter</Text>
               </TouchableOpacity>
             </View>
+
+            {/* Modal pour afficher les infos de connexion */}
+            <Modal
+              visible={showCredentialsModal}
+              animationType="slide"
+              transparent
+              onRequestClose={handleCloseModal}
+            >
+              <View style={styles.modalOverlay}>
+                <View style={styles.modalContent}>
+                  <Ionicons name="shield-checkmark-outline" size={48} color="#4F46E5" style={{ alignSelf: 'center', marginBottom: 10 }} />
+                  <Text style={styles.modalTitle}>Informations de connexion</Text>
+                  <Text style={styles.modalMessage}>
+                    Veuillez faire une capture d'écran de ces informations et les conserver en lieu sûr. 
+                    Pour votre sécurité, nous ne pourrons pas vous les réafficher plus tard.
+                  </Text>
+                  <View style={styles.credentialRow}>
+                    <Text style={styles.credentialLabel}>Nom :</Text>
+                    <Text style={styles.credentialValue}>{credentials.name}</Text>
+                  </View>
+                  <View style={styles.credentialRow}>
+                    <Text style={styles.credentialLabel}>Email :</Text>
+                    <Text style={styles.credentialValue}>{credentials.email}</Text>
+                  </View>
+                  <View style={styles.credentialRow}>
+                    <Text style={styles.credentialLabel}>Mot de passe :</Text>
+                    <Text style={styles.credentialValue}>{credentials.password}</Text>
+                  </View>
+                  <Text style={styles.modalWarning}>
+                    ⚠️ Ne partagez jamais ces informations avec qui que ce soit. La sécurité de votre compte est primordiale.
+                  </Text>
+                  <TouchableOpacity style={styles.modalButton} onPress={handleCloseModal}>
+                    <Text style={styles.modalButtonText}>J'ai bien noté mes infos</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </Modal>
           </View>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
@@ -252,5 +305,77 @@ const styles = StyleSheet.create({
     color: '#4F46E5',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  // Styles pour la modal de credentials
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '90%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'stretch',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#4F46E5',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalMessage: {
+    fontSize: 15,
+    color: '#222',
+    textAlign: 'center',
+    marginBottom: 18,
+  },
+  credentialRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  credentialLabel: {
+    fontWeight: 'bold',
+    color: '#222',
+    fontSize: 15,
+  },
+  credentialValue: {
+    color: '#4F46E5',
+    fontSize: 15,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    maxWidth: '60%',
+  },
+  modalWarning: {
+    color: '#B91C1C',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 12,
+    marginBottom: 18,
+    fontStyle: 'italic',
+  },
+  modalButton: {
+    backgroundColor: '#4F46E5',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });

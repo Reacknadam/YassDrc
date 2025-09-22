@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Yass Redirect</title>
+    <script>
+      /* Récupère les paramètres dans l'URL (hash et query) */
+      function getHashParams() {
+        const hash = window.location.hash.substring(1); // Remove #
+        const params = new URLSearchParams(hash);
+        return {
+          access_token: params.get('access_token'),
+          refresh_token: params.get('refresh_token'),
+          error: params.get('error')
+        };
+      }
+
+      function getQueryParams() {
+        const params = new URLSearchParams(window.location.search);
+        return {
+          access_token: params.get('access_token'),
+          refresh_token: params.get('refresh_token'),
+          error: params.get('error')
+        };
+      }
+
+      // Essayer d'abord le hash, puis les query parameters
+      const hashParams = getHashParams();
+      const queryParams = getQueryParams();
+      
+      const access_token = hashParams.access_token || queryParams.access_token;
+      const refresh_token = hashParams.refresh_token || queryParams.refresh_token;
+      const error = hashParams.error || queryParams.error;
+
+      /* Détecte Safari sur iOS pour les tests */
+      function isSafariIOS() {
+        const ua = navigator.userAgent;
+        return /iPad|iPhone|iPod/.test(ua) && /Safari/.test(ua) && !/CriOS|FxiOS|OPiOS|mercury/.test(ua);
+      }
+
+      /* Construit l'URL de retour vers l'app */
+      let appUrl;
+      
+      // Pour Safari iOS (tests), utiliser exp://
+      if (isSafariIOS()) {
+        appUrl = 'exp://172.20.10.3:8081/--/auth';
+      } else {
+        // Pour les autres navigateurs, utiliser yass://
+        appUrl = 'yass://auth';
+      }
+      
+      if (error) {
+        appUrl += '?error=' + encodeURIComponent(error);
+      } else if (access_token && refresh_token) {
+        appUrl += '?access_token=' + encodeURIComponent(access_token) +
+                  '&refresh_token=' + encodeURIComponent(refresh_token);
+      }
+      
+      /* Redirige immédiatement */
+      window.location.replace(appUrl);
+      
+      /* Fallback pour Safari iOS si la redirection automatique échoue */
+      if (isSafariIOS()) {
+        setTimeout(() => {
+          const fallbackDiv = document.createElement('div');
+          fallbackDiv.innerHTML = `
+            <div style="text-align: center; padding: 20px; font-family: Arial, sans-serif;">
+              <h3>Redirection vers l'application...</h3>
+              <p>Si l'application ne s'ouvre pas automatiquement, cliquez sur le bouton ci-dessous :</p>
+              <a href="${appUrl}" style="display: inline-block; background: #007AFF; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin-top: 10px;">
+                Ouvrir dans l'application
+              </a>
+            </div>
+          `;
+          document.body.appendChild(fallbackDiv);
+        }, 2000);
+      }
+    </script>
+  </head>
+  <body>
+    <p>Redirection en cours…</p>
+  </body>
+</html>
