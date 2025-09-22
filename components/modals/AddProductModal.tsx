@@ -1,9 +1,6 @@
-import { useAuth } from '../../context/AuthContext';
-import { storage } from '../../firebase/config';
-import { createProduct } from '../../services/productService';
-import { Picker } from '@react-native-picker/picker';
 import { AntDesign, Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { serverTimestamp } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import React, { useState } from 'react';
 import {
@@ -19,7 +16,9 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { serverTimestamp } from 'firebase/firestore';
+import { useAuth } from '../../context/AuthContext';
+import { storage } from '../../firebase/config';
+import { createProduct } from '../../services/productService';
 
 interface AddProductModalProps {
   visible: boolean;
@@ -39,7 +38,78 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ visible, onClose, onP
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const categories = ['Électronique', 'Mode', 'Maison', 'Beauté', 'Alimentation'];
-  const cities = ['Kinshasa', 'Lubumbashi', 'Goma', 'Kisangani', 'Bukavu', 'Matadi', 'Kolwezi'];
+  // Liste complète des principales villes de la RDC avec un design amélioré pour le Picker
+  const cities = [
+    'Kinshasa',
+    'Lubumbashi',
+    'Mbuji-Mayi',
+    'Kananga',
+    'Kisangani',
+    'Bukavu',
+    'Goma',
+    'Matadi',
+    'Bunia',
+    'Likasi',
+    'Kolwezi',
+    'Tshikapa',
+    'Uvira',
+    'Boma',
+    'Butembo',
+    'Kikwit',
+    'Isiro',
+    'Bandundu',
+    'Kindu',
+    'Gemena',
+    'Kalemie',
+    'Mwene-Ditu',
+    'Mbandaka',
+    'Kamina',
+    'Beni',
+    'Kipushi',
+    'Baraka',
+    'Kasumbalesa',
+    'Kabinda',
+    'Lodja',
+    'Gbadolite',
+    'Demba',
+    'Mweka',
+    'Boende',
+    'Inongo',
+    'Idiofa',
+    'Basankusu',
+    'Libenge',
+    'Aketi',
+    'Bondo',
+    'Lisala',
+    'Lusambo',
+    'Tshela',
+    'Zongo',
+    'Mongbwalu',
+    'Kasongo',
+    'Dilolo',
+    'Mongala',
+    'Businga',
+    'Buta',
+    'Kabare',
+    'Kenge',
+    'Kambove',
+    'Kasai',
+    'Kasaï-Central',
+    'Kasaï-Oriental',
+    'Kwango',
+    'Kwilu',
+    'Lomami',
+    'Lualaba',
+    'Mai-Ndombe',
+    'Maniema',
+    'Mongala',
+    'Nord-Kivu',
+    'Sankuru',
+    'Sud-Kivu',
+    'Tanganyika',
+    'Tshopo',
+    'Tshuapa'
+  ];
 
   const resetForm = () => {
     setImages([]);
@@ -61,8 +131,8 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ visible, onClose, onP
     try {
       const response = await fetch(uri);
       const blob = await response.blob();
-      const fileName = `${authUser?.id}_${Date.now()}`;
-      const storageRef = ref(storage, `products/${authUser?.id}/${fileName}`);
+      const fileName = `${authUser?.uid}_${Date.now()}`;
+      const storageRef = ref(storage, `products/${authUser?.uid}/${fileName}`);
       const uploadTask = uploadBytesResumable(storageRef, blob);
 
       return new Promise((resolve, reject) => {
@@ -95,7 +165,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ visible, onClose, onP
 
   const handleAddProduct = async () => {
     if (loading) return;
-    if (!authUser?.id || !name.trim() || !description.trim() || !price.trim() || images.length === 0 || !city) {
+    if (!authUser?.uid || !name.trim() || !description.trim() || !price.trim() || images.length === 0 || !city) {
       Alert.alert('Erreur', 'Veuillez remplir tous les champs, y compris la ville, et ajouter au moins une image.');
       return;
     }
@@ -111,7 +181,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ visible, onClose, onP
         images: imageUrls,
         category: category || 'Général',
         city,
-        sellerId: authUser.id,
+        sellerId: authUser.uid,
         sellerName: authUser.shopName || authUser.name || 'Vendeur Anonyme',
         sellerPhotoUrl: authUser.photoUrl || '',
         createdAt: serverTimestamp()
@@ -405,6 +475,41 @@ const styles = StyleSheet.create({
   progressBar: {
     height: '100%',
     backgroundColor: '#6C63FF',
+  },
+  // Added styles for city selector chips
+  label: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#555',
+    marginTop: 10,
+    marginBottom: 5,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 10,
+  },
+  chip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 16,
+    marginRight: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  chipActive: {
+    backgroundColor: '#6C63FF',
+    borderColor: '#6C63FF',
+  },
+  chipText: {
+    color: '#333',
+  },
+  chipTextActive: {
+    color: '#fff',
+    fontWeight: '600',
   },
   publishBtn: {
     backgroundColor: '#6C63FF',

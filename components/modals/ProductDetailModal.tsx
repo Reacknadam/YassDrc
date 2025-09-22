@@ -1,18 +1,18 @@
-import { Product, SellerInfo } from '../../types';
 import { AntDesign, Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
-  Animated,
-  FlatList,
-  Image,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  Dimensions
+    Animated,
+    Dimensions,
+    FlatList,
+    Image,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
+import { Product, SellerInfo } from '../../types';
 import OptimizedImage from '../OptimizedImage';
 
 const { width } = Dimensions.get('window');
@@ -77,6 +77,7 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   if (!product) {
     return null;
   }
+  const images = Array.isArray(product.images) ? product.images : [];
 
   return (
     <Modal
@@ -93,7 +94,7 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           <ScrollView showsVerticalScrollIndicator={false}>
             <>
               <FlatList
-                data={product.images}
+                data={images}
                 horizontal
                 pagingEnabled
                 showsHorizontalScrollIndicator={false}
@@ -106,7 +107,7 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   { useNativeDriver: false }
                 )}
               />
-              <ImagePagination imagesCount={product.images.length} scrollX={productImagesScrollX} />
+              <ImagePagination imagesCount={images.length} scrollX={productImagesScrollX} />
               <View style={styles.detailContent}>
                 <View style={styles.detailHeader}>
                   <Text style={styles.detailTitle}>{product.name}</Text>

@@ -22,7 +22,7 @@ interface CartModalProps {
   onPlaceOrder: (sellerId: string, items: CartItem[], totalAmount: number) => void;
   loadingOrder: string | null;
 }
-const router = useRouter();
+
 const CartModal: React.FC<CartModalProps> = ({
   visible,
   onClose,
@@ -31,6 +31,7 @@ const CartModal: React.FC<CartModalProps> = ({
   onPlaceOrder,
   loadingOrder,
 }) => {
+  const router = useRouter();
 
   const groupCartBySeller = () => {
     const grouped: Record<string, CartItem[]> = {};
