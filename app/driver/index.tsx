@@ -280,6 +280,32 @@ export default function DriverScreen() {
     }
   };
 
+  
+const [sellerLiveLocation, setSellerLiveLocation] = useState<{
+  latitude: number;
+  longitude: number;
+} | null>(null);
+
+useEffect(() => {
+  if (!selectedDelivery?.orderId) return;
+
+  const unsub = onSnapshot(doc(db, 'orders', selectedDelivery.orderId), (snap) => {
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data.sellerLiveLatitude && data.sellerLiveLongitude) {
+        setSellerLiveLocation({
+          latitude: data.sellerLiveLatitude,
+          longitude: data.sellerLiveLongitude,
+        });
+      }
+    }
+  });
+
+  return () => unsub();
+}, [selectedDelivery?.orderId]);
+
+
+
   useEffect(() => {
     const checkLoginStatus = async () => {
       try {
@@ -755,15 +781,18 @@ export default function DriverScreen() {
             {/* Route for the selected delivery */}
             {selectedDelivery && selectedDelivery.sellerLat && selectedDelivery.sellerLng && (
               <>
-                <Marker
-                  coordinate={{ latitude: selectedDelivery.sellerLat, longitude: selectedDelivery.sellerLng }}
-                  title={`Récupérer chez: ${selectedDelivery.sellerName}`}
-                  tracksViewChanges={false}
-                >
-                  <View style={styles.routeMarker}>
-                    <Ionicons name="storefront-outline" size={24} color={Colors.warning} />
-                  </View>
-                </Marker>
+                {sellerLiveLocation && (
+  <Marker
+    coordinate={sellerLiveLocation}
+    title={`Récupération chez ${selectedDelivery.sellerName} (temps réel)`}
+    pinColor="gold"
+    tracksViewChanges={false}
+  >
+    <View style={styles.livePickupMarker}>
+      <Ionicons name="storefront" size={24} color="#FFF" />
+    </View>
+  </Marker>
+)}
                 <Marker
                   coordinate={{ latitude: selectedDelivery.lat, longitude: selectedDelivery.lng }}
                   title={`Livrer à: ${selectedDelivery.buyerName}`}
@@ -1249,6 +1278,16 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
+  },
+  livePickupMarker: {
+    backgroundColor: '#FFD700',
+    padding: 10,
+    borderRadius: 25,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 6,
   },
   statusBadge: {
     paddingHorizontal: 12,

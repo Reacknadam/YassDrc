@@ -22,11 +22,11 @@ export default function MesCommandesScreen() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!authUser?.id) return;
+    if (!authUser?.uid) return;
 
     const q = query(
       collection(db, 'orders'),
-      where('buyerId', '==', authUser.id),
+      where('buyerId', '==', authUser.uid),
       orderBy('createdAt', 'desc')
     );
 

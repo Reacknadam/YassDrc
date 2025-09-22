@@ -24,12 +24,12 @@ export default function UploadQR() {
     if (!result.canceled) {
       const uri = result.assets[0].uri;
       const blob = await fetch(uri).then(r => r.blob());
-      const fileRef = ref(storage, `qr-codes/${authUser?.id}_${type}.jpg`);
+      const fileRef = ref(storage, `qr-codes/${authUser?.uid}_${type}.jpg`);
       await uploadBytes(fileRef, blob);
       const url = await getDownloadURL(fileRef);
 
       setImages(prev => ({ ...prev, [type]: url }));
-      await updateDoc(doc(db, 'users', authUser!.id), {
+      await updateDoc(doc(db, 'users', authUser!.uid), {
         [`qrCodes.${type}`]: url,
       });
 

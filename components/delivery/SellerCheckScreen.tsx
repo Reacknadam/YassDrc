@@ -3,6 +3,7 @@ import { db, storage } from '../../firebase/config';
 import { useAppState } from '../../hooks/useAppState';
 import { useLiveLocation } from '../../hooks/useLiveLocation';
 import { Ionicons } from '@expo/vector-icons';
+import * as Crypto from 'expo-crypto';
 import * as ImagePicker from 'expo-image-picker';
 import {
     addDoc,
@@ -82,6 +83,8 @@ const SellerCheckScreen: React.FC = () => {
   const [paymentVisible, setPaymentVisible] = useState(false);
   const [depositId, setDepositId] = useState<string | null>(null);
   const mapRef = useRef<typeof MapView>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const [highlightedDriver, setHighlightedDriver] = useState<Driver | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [availableDrivers, setAvailableDrivers] = useState<Driver[]>([]);
@@ -90,7 +93,7 @@ const SellerCheckScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [driverDepositId, setDriverDepositId] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [isPaymentModalVisible, setPaymentModalVisible] = useState<boolean>(false);
@@ -177,11 +180,11 @@ const SellerCheckScreen: React.FC = () => {
 
   // Load orders
   useEffect(() => {
-    if (!authUser?.id) return;
+    if (!authUser?.uid) return;
 
     const ordersQuery = query(
       collection(db, 'orders'),
-      where('sellerId', '==', authUser.id),
+      where('sellerId', '==', authUser.uid),
       orderBy('createdAt', 'desc')
     );
 
@@ -208,13 +211,35 @@ const SellerCheckScreen: React.FC = () => {
   }, [authUser]);
 
   useEffect(() => {
+    if (!location || !authUser?.uid || orders.length === 0) return;
+  
+    const updatePromises = orders
+      .filter(
+        order =>
+          order.status === OrderStatus.SellerDelivering ||
+          order.status === OrderStatus.AppDelivering
+      )
+      .map(order =>
+        updateDoc(doc(db, 'orders', order.id), {
+          sellerLiveLatitude: location.coords.latitude,
+          sellerLiveLongitude: location.coords.longitude,
+          updatedAt: serverTimestamp(),
+        })
+      );
+  
+    Promise.all(updatePromises);
+  }, [location, orders, authUser]);
+  
+
+  useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
     };
   }, []);
   // Load available drivers
   useEffect(() => {
-    if (!authUser?.id || !location) return;
+    if (!authUser?.uid || !location) return;
 
     const driversQuery = query(
       collection(db, 'users'),
@@ -256,7 +281,7 @@ const SellerCheckScreen: React.FC = () => {
 
   // Update seller location for active deliveries
   useEffect(() => {
-    if (!location || !authUser?.id || orders.length === 0) return;
+    if (!location || !authUser?.uid || orders.length === 0) return;
 
     const updatePromises = orders
       .filter(
@@ -309,13 +334,15 @@ const SellerCheckScreen: React.FC = () => {
   const WORKER_ROOT = 'https://yass-webhook.israelntalu328.workers.dev';
 
   const startPayment = () => {
-    if (!authUser?.id) return Alert.alert('Erreur', 'Non connecté');
+    if (!authUser?.uid) return Alert.alert('Erreur', 'Non connecté');
+    const id = Crypto.randomUUID();
+    setDepositId(id);
     setPaymentVisible(true);
   };
 
   const handleNavChange = (nav: any) => {
     const { url } = nav;
-    if (url.includes(`${WORKER_ROOT}/payment-return`)) {
+    if (url.includes('yass-webhook.israelntalu328.workers.dev/payment-return')) {
       const id = new URL(url).searchParams.get('depositId');
       if (id) {
         setDepositId(id);
@@ -324,12 +351,12 @@ const SellerCheckScreen: React.FC = () => {
       }
     }
   };
-
+  
   const pollStatus = (id: string) => {
     let tries = 0;
     const max = 20;
     if (pollRef.current) clearInterval(pollRef.current);
-
+  
     pollRef.current = setInterval(async () => {
       tries++;
       try {
@@ -337,52 +364,30 @@ const SellerCheckScreen: React.FC = () => {
         if (!r.ok) throw new Error('net');
         const { status } = await r.json();
         const st = String(status).toUpperCase();
-
+  
         if (['SUCCESS', 'SUCCESSFUL'].includes(st)) {
-          if (pollRef.current) {
-            clearInterval(pollRef.current);
-            pollRef.current = null;
-          }
-
-          if (selectedOrder?.id) {
-            await updateDoc(doc(db, 'orders', selectedOrder.id), {
-              status: 'payment_ok',
-              updatedAt: serverTimestamp(),
-            });
-            Alert.alert('✅ Paiement confirmé', 'La course est payée.');
-          } else {
-            console.error(
-              'pollStatus: selectedOrder or its ID is missing when trying to update payment status.'
-            );
-            Alert.alert('Erreur', 'Impossible de mettre à jour la commande, ID manquant.');
-          }
+          clearInterval(pollRef.current!); pollRef.current = null;
+          /* ici ton updateDoc ou runTransaction pour passer la commande à PaymentOK */
+          Alert.alert('✅ Paiement course confirmé', 'Le livreur peut partir.');
           return;
         }
-
         if (['FAILED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'ERROR'].includes(st)) {
-          if (pollRef.current) {
-            clearInterval(pollRef.current);
-            pollRef.current = null;
-          }
+          clearInterval(pollRef.current!); pollRef.current = null;
           Alert.alert('Paiement échoué', 'Le paiement a été refusé/annulé.');
           return;
         }
-      } catch {
-        // ignore
-      }
-
+      } catch {/* ignore */}
       if (tries >= max) {
-        if (pollRef.current) {
-          clearInterval(pollRef.current);
-          pollRef.current = null;
-        }
+        clearInterval(pollRef.current!); pollRef.current = null;
         Alert.alert('⏱ Délai dépassé', 'Paiement non confirmé.');
       }
     }, 3000);
   };
 
+
+
   const handleAppDeliverySelection = useCallback(async () => {
-    if (!selectedOrder || !authUser?.id) return;
+    if (!selectedOrder || !authUser?.uid) return;
 
     if (!selectedOrder.deliveryCoordinates) {
       Alert.alert('Erreur de données', 'Les coordonnées de livraison pour cette commande sont manquantes.');
@@ -413,7 +418,7 @@ const SellerCheckScreen: React.FC = () => {
         const deliveryRef = doc(collection(db, 'deliveries'));
         transaction.set(deliveryRef, {
           orderId: selectedOrder.id,
-          sellerId: authUser.id,
+          sellerId: authUser.uid,
           sellerName: authUser.email || 'Vendeur',
           sellerPhone: authUser.phoneNumber || 'N/A',
           sellerLat: location?.coords.latitude,
@@ -477,7 +482,7 @@ const SellerCheckScreen: React.FC = () => {
 
   const handleAssignDriver = useCallback(
     async (driver: Driver) => {
-      if (!selectedOrder || !authUser?.id) return;
+      if (!selectedOrder || !authUser?.uid) return;
 
       if (!selectedOrder.deliveryCoordinates) {
         Alert.alert('Erreur de données', 'Les coordonnées de livraison pour cette commande sont manquantes.');
@@ -487,7 +492,7 @@ const SellerCheckScreen: React.FC = () => {
       try {
         await addDoc(collection(db, 'deliveries'), {
           orderId: selectedOrder.id,
-          sellerId: authUser.id,
+          sellerId: authUser.uid,
           sellerName: authUser.email || 'Vendeur',
           sellerPhone: authUser.phoneNumber || 'N/A',
           sellerLat: location?.coords.latitude,
@@ -699,6 +704,8 @@ const SellerCheckScreen: React.FC = () => {
     );
   }
 
+
+  
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFF" />
@@ -719,8 +726,7 @@ const SellerCheckScreen: React.FC = () => {
 
       {viewMode === 'map' ? (
         <View style={styles.mapContainer}>
-           <Text>La carte est temporairement désactivée pour le débogage.</Text>
-           {/*
+      
           <MapView
             ref={mapRef}
             provider={PROVIDER_GOOGLE}
@@ -807,7 +813,7 @@ const SellerCheckScreen: React.FC = () => {
               </Marker>
             ))}
           </MapView>
-          */}
+         
         </View>
       ) : (
         <FlatList
@@ -956,8 +962,8 @@ const SellerCheckScreen: React.FC = () => {
 
             <WebView
               source={{
-                uri: `${WORKER_ROOT}/payment-page?amount=2000&currency=CDF`,
-              }}
+    uri: `${WORKER_ROOT}/payment-page?depositId=${depositId}&amount=2000&currency=CDF`,
+  }}
               onNavigationStateChange={handleNavChange}
               onError={e => {
                 console.log('WebView error :', e.nativeEvent);

@@ -53,7 +53,7 @@ const ReviewModal: React.FC<ReviewModalProps> = ({
               {[1, 2, 3, 4, 5].map((star) => (
                 <TouchableOpacity key={star} onPress={() => setCurrentRating(star)}>
                   <AntDesign
-                    name={star <= currentRating ? "star" : "staro"}
+                    name={star <= currentRating ? "star" : "star"}
                     size={40}
                     color="#FFD700"
                     style={{ marginHorizontal: 5 }}

@@ -8,6 +8,7 @@ import {
   doc,
   getDoc,
   onSnapshot,
+  serverTimestamp,
   updateDoc
 } from 'firebase/firestore';
 import React, {
@@ -436,7 +437,33 @@ const pollStatus = (id: string) => {
 
       if (['SUCCESS', 'SUCCESSFUL'].includes(st)) {
         clearInterval(pollRef.current!); pollRef.current = null;
-        updateDoc(doc(db, 'orders', orderId), { depositStatus: 'PAID', status: 'confirmed' });
+
+        // 🔥 Mets à jour la commande avec toutes les infos dont le vendeur a besoin
+        const updates: any = {
+          depositStatus: 'PAID',
+          status: 'confirmed',
+          buyerId: authUser!.uid,
+          buyerName: authUser!.name || authUser!.email!.split('@')[0],
+          buyerEmail: authUser!.email,
+          buyerPhone: authUser!.phoneNumber || null,
+          deliveryDetails: isDelivery
+            ? {
+                location: deliveryDetails.location.trim(),
+                address: deliveryDetails.address.trim(),
+                coordinates: deliveryDetails.coordinates,
+              }
+            : null,
+          pickupHouse: !isDelivery ? selectedPickupHouse : null,
+          depositAmount: depositAmount,
+          finalTotal: finalTotal,
+          promoCode: promoCode.trim().toUpperCase() || null,
+          discount: discount,
+          customerMessage: customerMessage.trim() || null,
+          updatedAt: serverTimestamp(),
+        };
+
+        await updateDoc(doc(db, 'orders', orderId), updates);
+
         Alert.alert('✅ Paiement confirmé', 'Votre commande est confirmée !');
         router.replace(`/order-confirmation/${orderId}`);
         return;

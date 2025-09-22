@@ -46,13 +46,13 @@ const DeliveryHubScreen = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fetchOrders = useCallback(async () => {
-    if (!authUser?.id) return;
+    if (!authUser?.uid) return;
     setLoading(true);
     try {
       const ordersRef = collection(db, 'orders');
       const q = query(
         ordersRef,
-        where('sellerId', '==', authUser.id),
+        where('sellerId', '==', authUser.uid),
         where('status', 'in', ['confirmed', 'pending'])
       );
       const querySnapshot = await getDocs(q);
@@ -105,7 +105,7 @@ const DeliveryHubScreen = () => {
 
       // 1. Create a new shipment document
       await addDoc(collection(db, 'shipments'), {
-        sellerId: authUser?.id,
+        sellerId: authUser?.uid,
         agency: shipmentDetails.agency,
         trackingNumber: shipmentDetails.trackingNumber,
         notes: shipmentDetails.notes,
@@ -166,11 +166,11 @@ const DeliveryHubScreen = () => {
                 onPress={() => toggleOrderSelection(order.id)}
               >
                 <View style={styles.checkbox}>
-                  <AntDesign
-                    name={selectedOrders[order.id] ? 'checksquare' : 'checksquareo'}
-                    size={24}
-                    color={selectedOrders[order.id] ? '#6C63FF' : '#aaa'}
-                  />
+                <AntDesign
+  name={selectedOrders[order.id] ? 'check-square' : 'check-square'}
+  size={24}
+  color={selectedOrders[order.id] ? '#6C63FF' : '#aaa'}
+/>
                 </View>
                 <View style={styles.orderDetails}>
                   <Text style={styles.orderId}>ID: #{order.id.slice(0, 7)}</Text>

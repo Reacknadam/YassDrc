@@ -14,7 +14,7 @@ export default function FastgoPayment() {
   const router = useRouter();
   const webviewRef = useRef<WebView>(null);
 
-  const depositId = `${authUser?.id}_${Date.now()}`;
+  const depositId = `${authUser?.uid}_${Date.now()}`;
 
   const confirmPayment = () => {
     let attempts = 0;
@@ -33,7 +33,7 @@ export default function FastgoPayment() {
          await setDoc(doc(db, 'deliveries', orderId as string), {
 
             orderId,
-            sellerId: authUser?.id,
+            sellerId: authUser?.uid,
             status: 'pending',
             location: { latitude: Number(latitude), longitude: Number(longitude) },
             createdAt: serverTimestamp(),
