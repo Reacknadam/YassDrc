@@ -31,7 +31,7 @@ jobs:
           build-tools: 33.0.2
 
       - name: Expo prebuild (sans Google Services)
-        run: npx expo prebuild --platform android --no-install --skip-google-services
+        run: npx expo prebuild --platform android --no-install
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew
