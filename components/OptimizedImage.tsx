@@ -2,103 +2,105 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, StyleSheet, View } from 'react-native';
 
-// Hook personnalisé pour le cache d'images
+/* ---------- Hook de cache ---------- */
 const useImageCache = () => {
   const [imageCache, setImageCache] = useState<Record<string, string>>({});
 
-  // Charger le cache au démarrage
   useEffect(() => {
-    const loadCache = async () => {
+    (async () => {
       try {
-        const cachedImages = await AsyncStorage.getItem('imageCache');
-        if (cachedImages) {
-          setImageCache(JSON.parse(cachedImages));
-        }
-      } catch (error) {
-        console.error('Erreur lors du chargement du cache:', error);
+        const raw = await AsyncStorage.getItem('imageCache');
+        if (raw) setImageCache(JSON.parse(raw));
+      } catch (e) {
+        console.warn('Erreur chargement cache image :', e);
       }
-    };
-    loadCache();
+    })();
   }, []);
 
-  // Mettre à jour le cache
-  const updateCache = async (url: string, localUri: string) => {
-    const newCache = { ...imageCache, [url]: localUri };
-    setImageCache(newCache);
+  const updateCache = async (url: string, base64: string) => {
+    // ⚠️ simple garde-fou taille (≈ 100 ko)
+    if (base64.length > 140_000) return;
+
+    const next = { ...imageCache, [url]: base64 };
+    setImageCache(next);
     try {
-      await AsyncStorage.setItem('imageCache', JSON.stringify(newCache));
-    } catch (error) {
-      console.error('Erreur lors de la mise à jour du cache:', error);
+      await AsyncStorage.setItem('imageCache', JSON.stringify(next));
+    } catch (e) {
+      console.warn('Erreur écriture cache image :', e);
     }
   };
 
   return { imageCache, updateCache };
 };
 
-// Composant OptimizedImage avec cache
+/* ---------- Composant ---------- */
 interface OptimizedImageProps {
-  source: { uri: string };
-  style: any;
+  source: { uri?: string };
+  style?: any;
   [key: string]: any;
 }
 
-const OptimizedImage: React.FC<OptimizedImageProps> = ({ source, style, ...props }) => {
-  const [isLoading, setIsLoading] = useState(true);
-  const [localUri, setLocalUri] = useState<string | null>(null);
+const OptimizedImage: React.FC<OptimizedImageProps> = ({
+  source,
+  style,
+  ...imgProps
+}) => {
+  const [loading, setLoading] = useState(true);
+  const [uri, setUri] = useState<string | null>(null);
   const { imageCache, updateCache } = useImageCache();
 
   useEffect(() => {
-    const loadImage = async () => {
-      if (!source.uri) {
-        setIsLoading(false);
-        return;
-      }
+    const cleanUri = (source.uri ?? '').trim();
+    if (!cleanUri) {
+      setLoading(false);
+      return;
+    }
 
-      // Vérifier si l'image est en cache
-      if (imageCache[source.uri]) {
-        setLocalUri(imageCache[source.uri]);
-        setIsLoading(false);
-        return;
-      }
+    // 1) déjà en mémoire ?
+    if (imageCache[cleanUri]) {
+      setUri(imageCache[cleanUri]);
+      setLoading(false);
+      return;
+    }
 
-      // Télécharger et mettre en cache l'image
+    // 2) télécharger
+    (async () => {
       try {
-        const response = await fetch(source.uri);
-        const blob = await response.blob();
+        const res = await fetch(cleanUri);
+        if (!res.ok) throw new Error('fetch failed');
+        const blob = await res.blob();
         const reader = new FileReader();
         reader.onload = () => {
-          const base64data = reader.result as string;
-          setLocalUri(base64data);
-          updateCache(source.uri, base64data);
-          setIsLoading(false);
+          const b64 = reader.result as string;
+          setUri(b64);
+          updateCache(cleanUri, b64);
         };
         reader.readAsDataURL(blob);
-      } catch (error) {
-        console.error('Erreur de chargement image:', error);
-        setLocalUri(source.uri); // Fallback to original uri on error
-        setIsLoading(false);
+      } catch (e) {
+        console.warn('OptimizedImage :', e);
+        setUri(cleanUri); // fallback URI originale
+      } finally {
+        setLoading(false);
       }
-    };
-
-    loadImage();
-  }, [source.uri, imageCache]);
+    })();
+  }, [source.uri]); // ← pas d’imageCache ici
 
   return (
     <View style={style}>
-      {isLoading && (
+      {loading && (
         <ActivityIndicator
-          style={StyleSheet.absoluteFill}
+          style={StyleSheet.absoluteFillObject}
           size="small"
           color="#6C63FF"
         />
       )}
       <Image
-        source={localUri ? { uri: localUri } : source}
-        style={StyleSheet.absoluteFill}
+        source={{ uri: uri || undefined }}
+        style={StyleSheet.absoluteFillObject}
         resizeMode="cover"
-        onLoadEnd={() => setIsLoading(false)}
-        onError={() => setIsLoading(false)}
-        {...props}
+        onLoadEnd={() => setLoading(false)}
+        onError={() => setLoading(false)}
+        {...imgProps}
       />
     </View>
   );

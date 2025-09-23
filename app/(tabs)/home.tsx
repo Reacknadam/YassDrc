@@ -161,7 +161,6 @@ const HomeScreenHeader: React.FC<{
   authUser,
   onCartPress,
   cartItemCount,
-  search,
   handleSearchChange,
   cityFilter,
   cities,
@@ -175,8 +174,12 @@ const HomeScreenHeader: React.FC<{
   setSearchResults,
   setSearchModalVisible,
 }) => {
+
+  
   // Removed invalid property declarations inside the function body.
   // Fix 4: Le state 'suggestions' est déclaré 2 fois. Supprimé à l'intérieur de la fonction imbriquée.
+
+  const [search, setSearch] = useState('');
   return (
     <>
     <View style={[styles.header, { backgroundColor: COLORS.background }]}>
@@ -203,7 +206,7 @@ const HomeScreenHeader: React.FC<{
     placeholder="Rechercher un produit..."
     placeholderTextColor={COLORS.textSecondary}
     value={search}
-    onChangeText={handleSearchChange}
+    onChangeText={setSearch}
     onSubmitEditing={() => {
       const results = searchProducts(search);
       setSearchResults(results);
@@ -419,6 +422,56 @@ const [searchModalVisible, setSearchModalVisible] = useState(false);
   }, [products, favorites]);
 
 
+  function levenshtein(a: string, b: string): number {
+    const matrix: number[][] = [];
+  
+    for (let i = 0; i <= b.length; i++) {
+      matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+      matrix[0][j] = j;
+    }
+    for (let i = 1; i <= b.length; i++) {
+      for (let j = 1; j <= a.length; j++) {
+        if (b.charAt(i - 1) === a.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+    return matrix[b.length][a.length];
+  }
+
+
+  useEffect(() => {
+    const term = normalize(search.trim());
+    if (term.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+  
+    const scored = allProducts
+      .map(p => {
+        const txt = normalize(
+          `${p.name ?? ''} ${p.description ?? ''} ${p.category ?? ''} ${p.city ?? ''}`
+        );
+        const lev = levenshtein(term, txt);
+        const keywordMatch = txt.includes(term) ? 1 : 0;
+        const score = keywordMatch * 10 - lev;
+        return { ...p, score };
+      })
+      .filter(p => p.score >= 0)
+      .sort((a, b) => b.score - a.score);
+  
+    setSuggestions(scored.slice(0, 5).map(p => p.name));
+    setShowSuggestions(scored.length > 0);
+  }, [search, allProducts]);
   // Petite fonction de normalisation
 const normalize = (str: string) =>
   str
@@ -427,57 +480,11 @@ const normalize = (str: string) =>
     .replace(/[\u0300-\u036f]/g, '') // enlève accents
     .replace(/s$/, '');             // enlève pluriel simple
 
-useEffect(() => {
-  const term = normalize(search.trim());
-  if (term.length < 2) {
-    setSuggestions([]);
-    setShowSuggestions(false);
-    return;
-  }
 
-  const scored = allProducts
-    .map(p => {
-      // Fix 5: txt dans levenshtein peut être appelé avec undefined
-      const txt = normalize(
-        `${p.name ?? ''} ${p.description ?? ''} ${p.category ?? ''} ${p.city ?? ''}`
-      );
-      const lev = levenshtein(term, txt);
-      const keywordMatch = txt.includes(term) ? 1 : 0;
-      const score = keywordMatch * 10 - lev; // plus lev est petit, mieux c’est
-      return { ...p, score };
-    })
-    .filter(p => p.score >= 0) // accepte jusqu’à 2 fautes
-    .sort((a, b) => b.score - a.score);
 
-  setSuggestions(scored.slice(0, 5).map(p => p.name));
-  setShowSuggestions(scored.length > 0);
-}, [search, allProducts]);
 
-function levenshtein(a: string, b: string): number {
-  const matrix: number[][] = [];
 
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1, // substitution
-          matrix[i][j - 1] + 1,     // insertion
-          matrix[i - 1][j] + 1      // suppression
-        );
-      }
-    }
-  }
-  return matrix[b.length][a.length];
-}
-
+    
   // Cart & Favorites
   useEffect(() => {
     (async () => {
