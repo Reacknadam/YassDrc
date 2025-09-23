@@ -12,17 +12,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          # ❌ on enlève le cache basé sur lockfile
-          cache: 'none'
 
-      - run: npm install --no-package-lock
+      # installe les dépendances et génère un package-lock.json neuf
+      - run: npm install
 
+      # montre les versions installées (debug pour éviter les conflits)
+      - run: npm list @react-native-async-storage/async-storage || true
+
+      # prébuild Expo
       - run: npx expo prebuild --platform android --no-install
 
+      # build gradle
       - run: chmod +x android/gradlew
       - run: cd android && ./gradlew assembleRelease
 
+      # upload APK en artifact
       - uses: actions/upload-artifact@v4
         with:
           name: app-release
           path: android/app/build/outputs/apk/release/app-release.apk
+
+      # upload aussi le package-lock généré (au cas où tu veux le récupérer)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-lock
+          path: package-lock.json
