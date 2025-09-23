@@ -13,14 +13,14 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  ScrollView, // Ajout pour les chips
+  ScrollView,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-/* ----------  CONFIG  ---------- */
+
 const WORKER_URL = 'https://agent.israelntalu328.workers.dev/chat';
 
-// ✅ Étape 5: Définition des boutons rapides (quick chips)
+
 const QUICK_CHIPS = [
   'Smartphones pas chers',
   'Promos du jour',

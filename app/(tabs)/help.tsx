@@ -220,8 +220,7 @@ const HelpScreen = () => {
 
         {/* Pied de page */}
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Version 1.0.0</Text>
-          <Text style={styles.footerText}>© 2025 YASS DRC App. Tous droits réservés.</Text>
+         
         </View>
       </ScrollView>
     </SafeAreaView>
