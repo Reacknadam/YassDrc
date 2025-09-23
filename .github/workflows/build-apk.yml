@@ -12,19 +12,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          # ❌ on enlève le cache basé sur lockfile
+          cache: 'none'
 
-      # install sans lockfile
       - run: npm install --no-package-lock
 
-      # prébuild Expo (sans install auto)
       - run: npx expo prebuild --platform android --no-install
 
-      # build gradle
       - run: chmod +x android/gradlew
       - run: cd android && ./gradlew assembleRelease
 
-      # upload APK en artifact
       - uses: actions/upload-artifact@v4
         with:
           name: app-release
