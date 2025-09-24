@@ -1,10 +1,10 @@
 name: Build APK
-
 on: push
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # sécurité si Gradle freeze
 
     steps:
       - name: Checkout
@@ -14,37 +14,58 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: false  # pas de lockfile, donc cache désactivé
 
-      - name: Install node deps (generate package-lock if missing)
+      # Installe deps npm
+      - name: Install dependencies
         run: npm install --legacy-peer-deps
 
+      # S'assure que async-storage est présent
       - name: Ensure async-storage installed
         run: |
           if ! npm list @react-native-async-storage/async-storage >/dev/null 2>&1; then
             npm install @react-native-async-storage/async-storage --legacy-peer-deps
           fi
 
-      - name: Show async-storage version (debug)
-        run: npm list @react-native-async-storage/async-storage || true
+      # Installe Android SDK nécessaire
+      - name: Install Android SDK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk unzip wget
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
 
-      - name: Expo prebuild (android)
+      # Expo prebuild
+      - name: Expo prebuild
         run: npx expo prebuild --platform android --no-install
 
-      - name: Make gradle executable
+      # Make gradle executable
+      - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      - name: Build Android Release (force Kotlin via -P)
+      # Build Gradle avec retry si Kotlin incompatible
+      - name: Build Android Release
         working-directory: android
-        run: ./gradlew assembleRelease -PkotlinVersion=2.0.21
+        run: |
+          MAX_TRIES=2
+          TRY=1
+          until [ $TRY -gt $MAX_TRIES ]
+          do
+            echo "Build attempt #$TRY"
+            ./gradlew assembleRelease -PkotlinVersion=2.0.21 && break
+            echo "Build failed, retrying..."
+            TRY=$((TRY+1))
+          done
 
-      - name: Upload APK artifact
+      # Upload APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-release
           path: android/app/build/outputs/apk/release/app-release.apk
 
-      - name: Upload package-lock (debug)
+      # Upload package-lock (debug)
+      - name: Upload package-lock
         uses: actions/upload-artifact@v4
         with:
           name: package-lock
