@@ -4,7 +4,7 @@ on: push
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30  # sécurité si Gradle freeze
+    timeout-minutes: 45  # sécurité si Gradle freeze
 
     steps:
       # 1️⃣ Checkout le repo
@@ -16,22 +16,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          # on supprime totalement "cache" pour éviter l'erreur
 
       # 3️⃣ Installer les dépendances npm
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
-      # 4️⃣ S'assurer qu'async-storage est présent
-      - name: Ensure async-storage installed
+      # 4️⃣ Vérifier et installer AsyncStorage
+      - name: Ensure AsyncStorage installed
         run: |
           if ! npm list @react-native-async-storage/async-storage >/dev/null 2>&1; then
             npm install @react-native-async-storage/async-storage --legacy-peer-deps
           fi
 
-      # 5️⃣ Installer Android SDK correctement via action
+      # 5️⃣ Installer Android SDK officiel
       - name: Setup Android SDK
-        uses: malinskiy/setup-android@v2
+        uses: android-actions/setup-android@v3
         with:
           api-level: 33
           build-tools: 33.0.2
@@ -44,24 +43,53 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # 8️⃣ Build Gradle avec retry si Kotlin incompatible
+      # 8️⃣ Détecter automatiquement la version Kotlin compatible avec Expo
+      - name: Detect compatible Kotlin
+        id: kotlin
+        run: |
+          # Liste de versions Kotlin supportées par Gradle/Expo
+          KOTLIN_VERSIONS=("2.2.20" "2.2.10" "2.2.0" "2.1.21" "2.1.20" "2.0.21")
+          for KV in "${KOTLIN_VERSIONS[@]}"; do
+            echo "Trying Kotlin version $KV"
+            ./gradlew assembleRelease -PkotlinVersion=$KV --dry-run >/dev/null 2>&1
+            if [ $? -eq 0 ]; then
+              echo "Detected compatible Kotlin version: $KV"
+              echo "kotlin_version=$KV" >> $GITHUB_OUTPUT
+              break
+            fi
+          done
+
+      # 9️⃣ Build Android Release avec retry
       - name: Build Android Release
         working-directory: android
         run: |
-          KOTLIN_VERSIONS=("2.2.20" "2.2.10" "2.2.0" "2.1.21" "2.1.20" "2.0.21")
-          for KV in "${KOTLIN_VERSIONS[@]}"; do
-              echo "Trying Kotlin version $KV"
-              ./gradlew assembleRelease -PkotlinVersion=$KV && break
+          MAX_TRIES=3
+          TRY=1
+          SUCCESS=0
+          while [ $TRY -le $MAX_TRIES ]; do
+            echo "Build attempt #$TRY with Kotlin ${{ steps.kotlin.outputs.kotlin_version }}"
+            if ./gradlew assembleRelease -PkotlinVersion=${{ steps.kotlin.outputs.kotlin_version }}; then
+              SUCCESS=1
+              echo "Build succeeded on attempt #$TRY"
+              break
+            else
+              echo "Build failed on attempt #$TRY"
+              ((TRY++))
+            fi
           done
+          if [ $SUCCESS -ne 1 ]; then
+            echo "🚨 Build failed after $MAX_TRIES attempts"
+            exit 1
+          fi
 
-      # 9️⃣ Upload APK
+      # 🔟 Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-release
           path: android/app/build/outputs/apk/release/app-release.apk
 
-      # 🔟 Upload package-lock.json pour debug
+      # 1️⃣1️⃣ Upload package-lock.json pour debug
       - name: Upload package-lock
         uses: actions/upload-artifact@v4
         with:
