@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { AuthProvider } from '../context/AuthContext';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider } from '../context/ThemeContext';
+import { registerForPushNotificationsAsync } from '../services/pushNotifications'; // ← ajout
 
 export default function RootLayout() {
   const [loading, setLoading] = useState(true);
@@ -16,7 +17,10 @@ export default function RootLayout() {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // rotation infinie
+    // 1. Enregistrement push dès le démarrage (sans userId)
+    registerForPushNotificationsAsync();
+
+    // 2. Animations existantes
     Animated.loop(
       Animated.timing(rotateAnim, {
         toValue: 1,
@@ -26,7 +30,6 @@ export default function RootLayout() {
       })
     ).start();
 
-    // effet pulsation
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(scaleAnim, {
@@ -45,7 +48,6 @@ export default function RootLayout() {
     );
     pulse.start();
 
-    // arrêt du loading après 3s
     const timer = setTimeout(() => {
       pulse.stop();
       setLoading(false);
@@ -54,7 +56,6 @@ export default function RootLayout() {
     return () => clearTimeout(timer);
   }, []);
 
-  // interpolation pour la rotation
   const spin = rotateAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '360deg'],
@@ -74,7 +75,7 @@ export default function RootLayout() {
                     { transform: [{ rotate: spin }, { scale: scaleAnim }] },
                   ]}
                 >
-                  {[ '#6C63FF', '#FF6584', '#FFA500', '#00C9A7' ].map(
+                  {['#6C63FF', '#FF6584', '#FFA500', '#00C9A7'].map(
                     (color, i) => (
                       <View
                         key={i}
@@ -83,12 +84,8 @@ export default function RootLayout() {
                           {
                             backgroundColor: color,
                             transform: [
-                              {
-                                translateX: Math.cos((i * Math.PI) / 2) * 80,
-                              },
-                              {
-                                translateY: Math.sin((i * Math.PI) / 2) * 80,
-                              },
+                              { translateX: Math.cos((i * Math.PI) / 2) * 80 },
+                              { translateY: Math.sin((i * Math.PI) / 2) * 80 },
                             ],
                           },
                         ]}
@@ -113,7 +110,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff', // fond sombre style galaxie
+    backgroundColor: '#fff',
   },
   orbit: {
     width: 200,

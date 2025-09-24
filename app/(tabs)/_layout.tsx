@@ -1,3 +1,4 @@
+// app/(tabs)/_layout.tsx
 import { useAuth } from '../../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -12,7 +13,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 type ValidTab = 'home' | 'help' | 'conv' | 'profile' | 'news' | 'check';
@@ -75,20 +75,18 @@ export default function TabsLayout() {
   };
 
   return (
-    <SafeAreaProvider style={{ flex: 1 }}>
-      <View style={{ flex: 1, paddingBottom: TAB_HEIGHT }}>
-        <Tabs
-          screenOptions={{
-            tabBarShowLabel: false,
-            tabBarStyle: { display: 'none' },
-            headerShown: false,
-          }}
-        >
-          {navButtons.map((btn) => (
-            <Tabs.Screen key={btn.tab} name={btn.tab} />
-          ))}
-        </Tabs>
-      </View>
+    <View style={{ flex: 1, paddingBottom: TAB_HEIGHT }}>
+      <Tabs
+        screenOptions={{
+          tabBarShowLabel: false,
+          tabBarStyle: { display: 'none' },
+          headerShown: false,
+        }}
+      >
+        {navButtons.map((btn) => (
+          <Tabs.Screen key={btn.tab} name={btn.tab} />
+        ))}
+      </Tabs>
 
       <View style={styles.navWrapper}>
         <LinearGradient
@@ -121,7 +119,7 @@ export default function TabsLayout() {
           </View>
         </LinearGradient>
       </View>
-    </SafeAreaProvider>
+    </View>
   );
 }
 

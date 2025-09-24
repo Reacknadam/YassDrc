@@ -586,6 +586,7 @@ const handlePayment = () => {
 )}
 
 
+
           {/* Type commande */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>1. Type de commande</Text>
@@ -972,4 +973,4 @@ const styles = StyleSheet.create({
   loadingText: { marginTop: 15, fontSize: 16, color: '#666' },
 });
 
-export default PayScreen;       
+export default PayScreen;

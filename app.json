@@ -5,10 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": [
-      "yass",
-      "exp"
-    ],
+    "scheme": ["yass", "exp"],
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
@@ -16,16 +13,7 @@
       "infoPlist": {
         "CFBundleURLTypes": [
           {
-            "CFBundleURLSchemes": [
-              "yass",
-              "exp"
-            ]
-          },
-          {
-            "CFBundleURLSchemes": [
-              "yass",
-              "exp"
-            ]
+            "CFBundleURLSchemes": ["yass", "exp"]
           }
         ]
       }
@@ -38,41 +26,15 @@
       "package": "com.israelltd.yass",
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
       ],
       "intentFilters": [
         {
           "action": "VIEW",
-          "data": [
-            {
-              "scheme": "yass"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
-        },
-        {
-          "action": "VIEW",
-          "data": [
-            {
-              "scheme": "yass"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
+          "data": [{ "scheme": "yass" }],
+          "category": ["BROWSABLE", "DEFAULT"]
         }
       ]
-    },
-    "web": {
-      "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
       [

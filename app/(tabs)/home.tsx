@@ -93,7 +93,7 @@ const RecommendationCarousel = ({ products, onProductPress }: { products: Produc
   if (!products?.length) {
     return (
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: COLORS.text }]}>Recommandés pour vous</Text>
+        <Text style={[styles.sectionTitle, { color: COLORS.text }]}>Recommandés par L' IA</Text>
         <Text style={{ paddingLeft: 16, color: '#999' }}>
           Parcourez des produits pour voir des suggestions
         </Text>
@@ -103,7 +103,7 @@ const RecommendationCarousel = ({ products, onProductPress }: { products: Produc
 
   return (
     <View style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: COLORS.text }]}>Recommandés pour vous</Text>
+      <Text style={[styles.sectionTitle, { color: COLORS.text }]}>Recommandés par L' IA</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recommendationContainer}>
         {products.map(product => (
           <TouchableOpacity 
@@ -739,6 +739,39 @@ const normalize = (str: string) =>
         <Text style={[styles.emptyText, { color: COLORS.textSecondary }]}>Aucun produit trouvé.</Text>
       </View>
     );
+  
+  const isSellerVerified = authUser?.isSellerVerified === true;
+
+  const quickActions = [
+    ...(isSellerVerified
+      ? [
+          {
+            key: 'add',
+            icon: 'plus',
+            onPress: () => setAddProductVisible(true),
+            color: COLORS.primary,
+          },
+          {
+            key: 'dashboard',
+            icon: 'grid',
+            onPress: async () => {
+              const myProducts = await fetchMyProducts();
+              setSelectedSellerProducts(myProducts);
+              setSelectedSellerName(authUser?.name || 'Mes produits');
+              setSellerDashboardVisible(true);
+            },
+            color: '#333',
+          },
+          {
+            key: 'orders',
+            icon: 'shopping-bag',
+            onPress: () => setMyOrdersModalVisible(true),
+            color: COLORS.notification,
+          },
+        ]
+      : []),
+  ];
+
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: COLORS.background }]}>
@@ -778,23 +811,23 @@ const normalize = (str: string) =>
         contentContainerStyle={styles.gridContainer}
         ListHeaderComponent={
           <HomeScreenHeader
-  authUser={authUser}
-  onCartPress={() => setCartModalVisible(true)}
-  cartItemCount={cart.length}
-  search={search}
-  handleSearchChange={setSearch}
-  cityFilter={cityFilter}
-  cities={cities}
-  activeCategory={activeCategory}
-  setActiveCategory={setActiveCategory}
-  categories={categories}
-  onCityFilterPress={() => setCityModalVisible(true)}
-  recommendedProducts={recommendedProducts}
-  onProductPress={openDetailModal}
-  searchProducts={searchProducts}
-  setSearchResults={setSearchResults}
-  setSearchModalVisible={setSearchModalVisible}
-/>
+            authUser={authUser}
+            onCartPress={() => setCartModalVisible(true)}
+            cartItemCount={cart.length}
+            search={search}
+            handleSearchChange={setSearch}
+            cityFilter={cityFilter}
+            cities={cities}
+            activeCategory={activeCategory}
+            setActiveCategory={setActiveCategory}
+            categories={categories}
+            onCityFilterPress={() => setCityModalVisible(true)}
+            recommendedProducts={recommendedProducts}
+            onProductPress={openDetailModal}
+            searchProducts={searchProducts}
+            setSearchResults={setSearchResults}
+            setSearchModalVisible={setSearchModalVisible}
+          />
         }
         ListEmptyComponent={renderListEmpty}
         onEndReached={handleLoadMore}
@@ -804,23 +837,27 @@ const normalize = (str: string) =>
       />
 
       {/* Modals */}
-      {/* Quick actions */}
-      <View style={{ position: 'absolute', right: 16, bottom: 100, gap: 10 }}>
-        <TouchableOpacity onPress={() => setAddProductVisible(true)} style={{ backgroundColor: COLORS.primary, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 24 }}>
-          <Feather name="plus" size={22} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={async () => {
-          const myProducts = await fetchMyProducts();
-          setSelectedSellerProducts(myProducts);
-          setSelectedSellerName(authUser?.name || 'Mes produits');
-          setSellerDashboardVisible(true);
-        }} style={{ backgroundColor: '#333', paddingVertical: 12, paddingHorizontal: 14, borderRadius: 24 }}>
-          <Feather name="grid" size={20} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setMyOrdersModalVisible(true)} style={{ backgroundColor: COLORS.notification, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 24 }}>
-          <Feather name="shopping-bag" size={20} color="#fff" />
-        </TouchableOpacity>
-      </View>
+      {/* Quick actions - BLOC MODIFIÉ */}
+      {quickActions.length > 0 && (
+        <View style={{ position: 'absolute', right: 16, bottom: 100, gap: 10, zIndex: 999 }}>
+          {quickActions.map((btn) => (
+            <TouchableOpacity
+              key={btn.key}
+              onPress={btn.onPress}
+              style={{
+                backgroundColor: btn.color,
+                paddingVertical: 12,
+                paddingHorizontal: 14,
+                borderRadius: 24,
+                ...S.shadows.soft,
+              }}
+            >
+              <Feather name={btn.icon as any} size={22} color="#fff" />
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
       <CartModal
         visible={cartModalVisible}
         onClose={() => setCartModalVisible(false)}
@@ -831,12 +868,12 @@ const normalize = (str: string) =>
         loadingOrder={null}
       />
 
-<SearchResultsModal
-  visible={searchModalVisible}
-  onClose={() => setSearchModalVisible(false)}
-  results={searchResults}
-  onAddToCart={addToCart}
-/>
+      <SearchResultsModal
+        visible={searchModalVisible}
+        onClose={() => setSearchModalVisible(false)}
+        results={searchResults}
+        onAddToCart={addToCart}
+      />
 
 
       <ProductDetailModal
@@ -855,13 +892,13 @@ const normalize = (str: string) =>
         onClose={() => setSellerDashboardVisible(false)}
         products={selectedSellerProducts}
       />
-    <SellerProductsModal
-  visible={sellerProductsModalVisible}
-  onClose={() => setSellerProductsModalVisible(false)}
-  products={selectedSellerProducts}
-  sellerName={selectedSellerName}
-  onProductPress={openDetailModal} // ← même nom
-/>
+      <SellerProductsModal
+        visible={sellerProductsModalVisible}
+        onClose={() => setSellerProductsModalVisible(false)}
+        products={selectedSellerProducts}
+        sellerName={selectedSellerName}
+        onProductPress={openDetailModal} // ← même nom
+      />
       <AddProductModal
         visible={addProductVisible}
         onClose={() => setAddProductVisible(false)}
@@ -908,7 +945,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: S.spacing.md,
     paddingVertical: S.spacing.md,
   },
-  greeting: { fontSize: 24, fontWeight: 'bold' },
+  greeting: { fontSize: 18, fontWeight: 'bold' },
   subGreeting: { fontSize: 16 },
   cartIcon: { position: 'relative' },
   cartBadge: {

@@ -77,7 +77,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // AJOUTÉ : C'est le moment idéal pour enregistrer le jeton.
       // L'utilisateur est authentifié, nous avons son ID.
       // On le fait sans attendre les données de Firestore pour plus de réactivité.
-      registerForPushNotificationsAsync(session.user.id);
+      registerForPushNotificationsAsync();
 
 
       const userDocRef = doc(db, 'users', session.user.id);
