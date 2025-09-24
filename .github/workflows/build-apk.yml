@@ -14,7 +14,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: false  # pas de lockfile, donc cache désactivé
+          # ⚠️ on supprime totalement "cache" pour éviter l'erreur
 
       # Installe deps npm
       - name: Install dependencies
