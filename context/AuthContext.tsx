@@ -8,6 +8,7 @@ import { createContext, ReactNode, useContext, useEffect, useState } from 'react
 import { Alert } from 'react-native';
 import { db } from '../firebase/config';
 import { supabase } from '../supabase/client';
+import { registerForPushNotificationsAsync } from '../services/pushNotifications'; // AJOUTÉ : Importation de notre service
 
 /* ---------- Types ---------- */
 export interface AppUser {
@@ -72,6 +73,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         firestoreUnsub = null;
         return;
       }
+      
+      // AJOUTÉ : C'est le moment idéal pour enregistrer le jeton.
+      // L'utilisateur est authentifié, nous avons son ID.
+      // On le fait sans attendre les données de Firestore pour plus de réactivité.
+      registerForPushNotificationsAsync(session.user.id);
+
 
       const userDocRef = doc(db, 'users', session.user.id);
       firestoreUnsub = onSnapshot(

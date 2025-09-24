@@ -5,7 +5,10 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": ["yass", "exp"],
+    "scheme": [
+      "yass",
+      "exp"
+    ],
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
@@ -13,7 +16,16 @@
       "infoPlist": {
         "CFBundleURLTypes": [
           {
-            "CFBundleURLSchemes": ["yass", "exp"]
+            "CFBundleURLSchemes": [
+              "yass",
+              "exp"
+            ]
+          },
+          {
+            "CFBundleURLSchemes": [
+              "yass",
+              "exp"
+            ]
           }
         ]
       }
@@ -26,13 +38,34 @@
       "package": "com.israelltd.yass",
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
       ],
       "intentFilters": [
         {
           "action": "VIEW",
-          "data": [{ "scheme": "yass" }],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "yass"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "yass"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -77,7 +110,7 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/bf0661b1-391c-418e-a2f5-edf9d23ec30f"
+      "url": "https://u.expo.dev/215425d3-c0ea-48bd-9114-c1a6a90e0a6e"
     }
   }
 }

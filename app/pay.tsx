@@ -1,6 +1,4 @@
 // PayScreen.tsx
-import { useAuth } from '../context/AuthContext';
-import { db } from '../firebase/config';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -33,6 +31,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useAuth } from '../context/AuthContext';
+import { db } from '../firebase/config';
 
 import * as Crypto from 'expo-crypto';
 import { WebView } from 'react-native-webview';
@@ -563,19 +563,28 @@ const handlePayment = () => {
         <ScrollView contentContainerStyle={styles.container}>
           {/* Vendeur */}
           {sellerInfo && (
-            <View style={styles.sellerInfoContainer}>
-              <Image
-                source={{ uri: sellerInfo.photoUrl || 'https://placehold.co/100' }}
-                style={styles.sellerImage}
-              />
-              <View>
-                <Text style={styles.shopNameText}>
-                  {sellerInfo.shopName || 'Boutique'}
-                </Text>
-                <Text style={styles.sellerNameText}>{sellerInfo.name}</Text>
-              </View>
-            </View>
-          )}
+  <View style={styles.sellerCard}>
+    <Image
+      source={{ uri: sellerInfo.photoUrl || 'https://placehold.co/100' }}
+      style={styles.sellerCardImage}
+    />
+    <View style={styles.sellerCardText}>
+      <Text style={styles.sellerCardShopName}>
+        {sellerInfo.shopName || 'Boutique du vendeur'}
+      </Text>
+      <Text style={styles.sellerCardName}>
+        {sellerInfo.name || 'Vendeur'}
+      </Text>
+      {sellerInfo.phoneNumber && (
+        <Text style={styles.sellerCardPhone}> {sellerInfo.phoneNumber}</Text>
+      )}
+      {sellerInfo.email && (
+        <Text style={styles.sellerCardEmail}> {sellerInfo.email}</Text>
+      )}
+    </View>
+  </View>
+)}
+
 
           {/* Type commande */}
           <View style={styles.section}>
@@ -937,6 +946,27 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
   },
+
+  sellerCard: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    padding: 15,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    alignItems: 'center',
+  },
+  sellerCardImage: { width: 70, height: 70, borderRadius: 35, marginRight: 15 },
+  sellerCardText: { flex: 1 },
+  sellerCardShopName: { fontSize: 18, fontWeight: 'bold', color: '#6C63FF' },
+  sellerCardName: { fontSize: 16, color: '#333', marginTop: 2 },
+  sellerCardPhone: { fontSize: 14, color: '#555', marginTop: 2 },
+  sellerCardEmail: { fontSize: 14, color: '#555', marginTop: 1 },
+  
   addressText: { fontSize: 14, color: '#333', textAlign: 'center' },
   centeredView: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { marginTop: 15, fontSize: 16, color: '#666' },

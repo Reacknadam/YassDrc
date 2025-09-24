@@ -134,7 +134,7 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                           </View>
                         )}
                         {sellerInfo.isVerified && (
-                          <AntDesign name="checkcircle" size={20} color="#2ecc71" style={styles.verifiedIcon} />
+                          <AntDesign name="check" size={20} color="#2ecc71" style={styles.verifiedIcon} />
                         )}
                       </View>
                       <View style={styles.sellerDetails}>

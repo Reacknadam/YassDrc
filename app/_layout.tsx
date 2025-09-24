@@ -96,7 +96,7 @@ export default function RootLayout() {
                     )
                   )}
                 </Animated.View>
-                <Text style={styles.loadingText}>Chargement... 🌌</Text>
+                <Text style={styles.loadingText}>Chargement... </Text>
               </View>
             ) : (
               <Slot />
@@ -113,7 +113,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#0d0d1a', // fond sombre style galaxie
+    backgroundColor: '#fff', // fond sombre style galaxie
   },
   orbit: {
     width: 200,
@@ -132,6 +132,6 @@ const styles = StyleSheet.create({
     marginTop: 220,
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#000',
   },
 });

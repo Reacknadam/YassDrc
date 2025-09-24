@@ -7,7 +7,8 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
+  ScrollView
 } from 'react-native';
 import OptimizedImage from '../OptimizedImage';
 
@@ -27,7 +28,28 @@ const SellerProductsModal: React.FC<SellerProductsModalProps> = ({
   onProductPress,
 }) => {
   const handlePress = (product: Product) => {
-    onProductPress(product); // parent : addToCart + fermeture
+    onProductPress(product);
+  };
+
+  const renderItem = ({ item }: { item: Product }) => {
+    const imageUri = Array.isArray(item.images) && item.images.length > 0
+      ? item.images[0]
+      : 'https://via.placeholder.com/150';
+    const name = item.name || 'Produit inconnu';
+    const price = item.price != null ? `${item.price.toLocaleString()} CDF` : 'N/A';
+
+    return (
+      <TouchableOpacity
+        style={styles.sellerProductItem}
+     
+      >
+        <OptimizedImage source={{ uri: imageUri }} style={styles.sellerProductImage} />
+        <View style={styles.sellerProductDetails}>
+          <Text style={styles.sellerProductName} numberOfLines={1}>{name}</Text>
+          <Text style={styles.sellerProductPrice}>{price}</Text>
+        </View>
+      </TouchableOpacity>
+    );
   };
 
   return (
@@ -45,27 +67,20 @@ const SellerProductsModal: React.FC<SellerProductsModalProps> = ({
               <Ionicons name="close-circle-outline" size={30} color="#333" />
             </TouchableOpacity>
           </View>
-          <FlatList
-            data={products}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.sellerProductItem}
-                onPress={() => handlePress(item)}
-              >
-                <OptimizedImage source={{ uri: item.images[0] }} style={styles.sellerProductImage} />
-                <View style={styles.sellerProductDetails}>
-                  <Text style={styles.sellerProductName} numberOfLines={1}>{item.name}</Text>
-                  <Text style={styles.sellerProductPrice}>{item.price.toLocaleString()} CDF</Text>
+
+          {products.length === 0 ? (
+            <View style={styles.noProductsContainer}>
+              <Text style={styles.noProductsText}>Ce vendeur n'a pas encore de produits.</Text>
+            </View>
+          ) : (
+            <ScrollView style={styles.productList}>
+              {products.map((item) => (
+                <View key={item.id || Math.random().toString()}>
+                  {renderItem({ item })}
                 </View>
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={() => (
-              <View style={styles.noProductsContainer}>
-                <Text style={styles.noProductsText}>Ce vendeur n'a pas encore de produits.</Text>
-              </View>
-            )}
-          />
+              ))}
+            </ScrollView>
+          )}
         </View>
       </View>
     </Modal>
@@ -73,14 +88,21 @@ const SellerProductsModal: React.FC<SellerProductsModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalView: { backgroundColor: '#f8f8f8', borderRadius: 20, padding: 20, width: '90%', maxHeight: '85%', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-start' },
+  modalView: {
+    backgroundColor: '#fff',
+    paddingTop: 40,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    flex: 1, // modale longue
+  },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   modalTitle: { fontSize: 24, fontWeight: 'bold', color: '#333' },
-  sellerProductItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, padding: 10, marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 },
-  sellerProductImage: { width: 70, height: 70, borderRadius: 8, marginRight: 15 },
+  productList: { flex: 1 },
+  sellerProductItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0f0f0', padding: 12, marginBottom: 12 },
+  sellerProductImage: { width: 70, height: 70, borderRadius: 0, marginRight: 15, backgroundColor: '#ddd' },
   sellerProductDetails: { flex: 1 },
-  sellerProductName: { fontSize: 16, fontWeight: 'bold' },
+  sellerProductName: { fontSize: 16, fontWeight: 'bold', color: '#333' },
   sellerProductPrice: { fontSize: 14, color: '#6C63FF', marginTop: 5 },
   noProductsContainer: { justifyContent: 'center', alignItems: 'center', marginTop: 50 },
   noProductsText: { fontSize: 16, color: '#888', marginTop: 10 },
