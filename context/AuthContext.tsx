@@ -124,7 +124,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (error) throw error;
       return true;
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Erreur inconnue');
       return false;
     } finally {
       setLoading(false);
@@ -156,7 +156,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       await setDoc(userRef, newUser);
       return true;
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Erreur inconnue');
       return false;
     } finally {
       setLoading(false);
@@ -169,7 +169,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       await supabase.auth.signOut();
       router.replace('/login');
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Erreur inconnue');
     }
   };
 
@@ -217,28 +217,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (error) throw error;
 
       const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
       if (result.type === 'success') {
         const url = new URL(result.url);
-        
-        // Essayer d'abord les query parameters
         let access = url.searchParams.get('access_token');
         let refresh = url.searchParams.get('refresh_token');
-        
-        // Si pas trouvé, essayer le hash
+
         if (!access || !refresh) {
-          const hash = url.hash.substring(1); // Remove #
+          const hash = url.hash.substring(1);
           const hashParams = new URLSearchParams(hash);
           access = access || hashParams.get('access_token');
           refresh = refresh || hashParams.get('refresh_token');
         }
-        
+
         if (access && refresh) {
-          await supabase.auth.setSession({ access_token: access, refresh_token: refresh });
+          router.replace({
+            pathname: '/auth',
+            params: { access_token: access, refresh_token: refresh },
+          });
         }
       }
     } catch (err: any) {
       console.error('Google Sign-In Error:', err);
-      Alert.alert('Erreur', 'Échec de la connexion Google');
+      setError(err.message || 'Erreur inconnue');
     }
   };
 

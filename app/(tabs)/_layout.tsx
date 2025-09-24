@@ -35,15 +35,29 @@ export default function TabsLayout() {
 
   const navButtons: NavButtonConfig[] = [
     { tab: 'home', icon: 'home-outline', activeIcon: 'home', label: 'Accueil' },
-    ...(isSeller ? [{ tab: 'check' as ValidTab, icon: 'checkmark-circle-outline' as IconName, activeIcon: 'checkmark-circle' as IconName, label: 'Livraison' }] : []),
-    { tab: 'profile' as ValidTab, icon: 'person-outline' as IconName, activeIcon: 'person' as IconName, label: 'Profil' }
+    ...(isSeller
+      ? [
+          {
+            tab: 'check' as ValidTab,
+            icon: 'checkmark-circle-outline' as IconName,
+            activeIcon: 'checkmark-circle' as IconName,
+            label: 'Livraison',
+          },
+        ]
+      : []),
+    {
+      tab: 'profile' as ValidTab,
+      icon: 'person-outline' as IconName,
+      activeIcon: 'person' as IconName,
+      label: 'Profil',
+    },
   ];
 
   const tabCount = navButtons.length;
   const TAB_WIDTH = width / tabCount;
 
   React.useEffect(() => {
-    const currentIndex = navButtons.findIndex(btn => btn.tab === activeTab);
+    const currentIndex = navButtons.findIndex((btn) => btn.tab === activeTab);
     if (currentIndex !== -1) {
       Animated.spring(indicatorPosition, {
         toValue: currentIndex * TAB_WIDTH,
@@ -62,7 +76,7 @@ export default function TabsLayout() {
 
   return (
     <SafeAreaProvider style={{ flex: 1 }}>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, paddingBottom: TAB_HEIGHT }}>
         <Tabs
           screenOptions={{
             tabBarShowLabel: false,
@@ -70,39 +84,42 @@ export default function TabsLayout() {
             headerShown: false,
           }}
         >
-          {navButtons.map(btn => (
+          {navButtons.map((btn) => (
             <Tabs.Screen key={btn.tab} name={btn.tab} />
           ))}
         </Tabs>
+      </View>
 
-        <View style={styles.navWrapper}>
-          <LinearGradient
-            colors={['rgba(255,255,255,0.95)', 'rgba(245,245,245,0.97)']}
-            style={styles.navBar}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-          >
-            <Animated.View
-              style={[
-                styles.indicator,
-                { transform: [{ translateX: indicatorPosition }], width: TAB_WIDTH - 30 }
-              ]}
-            />
+      <View style={styles.navWrapper}>
+        <LinearGradient
+          colors={['rgba(255,255,255,0.95)', 'rgba(245,245,245,0.97)']}
+          style={styles.navBar}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+        >
+          <Animated.View
+            style={[
+              styles.indicator,
+              {
+                transform: [{ translateX: indicatorPosition }],
+                width: TAB_WIDTH - 30,
+              },
+            ]}
+          />
 
-            <View style={styles.tabsContainer}>
-              {navButtons.map((btn, index) => (
-                <NavButton
-                  key={btn.tab}
-                  icon={btn.icon}
-                  activeIcon={btn.activeIcon}
-                  label={btn.label}
-                  active={activeTab === btn.tab}
-                  onPress={() => handleTabPress(btn.tab, index)}
-                />
-              ))}
-            </View>
-          </LinearGradient>
-        </View>
+          <View style={styles.tabsContainer}>
+            {navButtons.map((btn, index) => (
+              <NavButton
+                key={btn.tab}
+                icon={btn.icon}
+                activeIcon={btn.activeIcon}
+                label={btn.label}
+                active={activeTab === btn.tab}
+                onPress={() => handleTabPress(btn.tab, index)}
+              />
+            ))}
+          </View>
+        </LinearGradient>
       </View>
     </SafeAreaProvider>
   );
@@ -116,7 +133,13 @@ interface NavButtonProps {
   onPress: () => void;
 }
 
-const NavButton = ({ icon, activeIcon, label, active, onPress }: NavButtonProps) => (
+const NavButton = ({
+  icon,
+  activeIcon,
+  label,
+  active,
+  onPress,
+}: NavButtonProps) => (
   <TouchableOpacity style={styles.tabButton} onPress={onPress}>
     {active ? (
       <LinearGradient
@@ -135,7 +158,11 @@ const NavButton = ({ icon, activeIcon, label, active, onPress }: NavButtonProps)
 );
 
 const styles = StyleSheet.create({
-  navWrapper: { width: '100%' },
+  navWrapper: {
+    width: '100%',
+    position: 'absolute',
+    bottom: 0,
+  },
   navBar: {
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
