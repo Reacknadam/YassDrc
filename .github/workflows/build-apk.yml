@@ -7,33 +7,45 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
-      # installe les dépendances et génère un package-lock.json neuf
-      - run: npm install
+      - name: Install node deps (generate package-lock if missing)
+        run: npm install --legacy-peer-deps
 
-      # montre les versions installées (debug pour éviter les conflits)
-      - run: npm list @react-native-async-storage/async-storage || true
+      - name: Ensure async-storage installed
+        run: |
+          if ! npm list @react-native-async-storage/async-storage >/dev/null 2>&1; then
+            npm install @react-native-async-storage/async-storage --legacy-peer-deps
+          fi
 
-      # prébuild Expo
-      - run: npx expo prebuild --platform android --no-install
+      - name: Show async-storage version (debug)
+        run: npm list @react-native-async-storage/async-storage || true
 
-      # build gradle
-      - run: chmod +x android/gradlew
-      - run: cd android && ./gradlew assembleRelease
+      - name: Expo prebuild (android)
+        run: npx expo prebuild --platform android --no-install
 
-      # upload APK en artifact
-      - uses: actions/upload-artifact@v4
+      - name: Make gradle executable
+        run: chmod +x android/gradlew
+
+      - name: Build Android Release (force Kotlin via -P)
+        working-directory: android
+        run: ./gradlew assembleRelease -PkotlinVersion=2.0.21
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
         with:
           name: app-release
           path: android/app/build/outputs/apk/release/app-release.apk
 
-      # upload aussi le package-lock généré (au cas où tu veux le récupérer)
-      - uses: actions/upload-artifact@v4
+      - name: Upload package-lock (debug)
+        uses: actions/upload-artifact@v4
         with:
           name: package-lock
           path: package-lock.json
