@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Yass",
-    "slug": "YassDrc",
+    "slug": "yass",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -60,10 +60,7 @@
       [
         "expo-build-properties",
         {
-          "android": {
-            "kotlinVersion": "1.8.22",
-            "composeCompilerVersion": "1.5.11"
-          }
+          "android": {}
         }
       ]
     ],
@@ -73,7 +70,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "bf0661b1-391c-418e-a2f5-edf9d23ec30f"
+        "projectId": "215425d3-c0ea-48bd-9114-c1a6a90e0a6e"
       }
     },
     "runtimeVersion": {
