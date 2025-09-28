@@ -162,18 +162,16 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   navBar: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingVertical: 7,
-    borderTopWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
+    paddingVertical: 3,
+    borderTopWidth: 2,
+    borderColor: '#fff',
   },
   tabsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 10,
-    borderRadius: 20,
+
   },
   tabButton: {
     alignItems: 'center',

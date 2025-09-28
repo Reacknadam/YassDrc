@@ -26,6 +26,7 @@ export default function RegisterScreen() {
   const [localLoading, setLocalLoading] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [referralCode, setReferralCode] = useState(''); // Ajout pour le code de parrainage
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -50,7 +51,7 @@ export default function RegisterScreen() {
       return;
     }
     setLocalLoading(true);
-    const success = await register(name, email, password);
+    const success = await register(name, email, password, referralCode);
     setLocalLoading(false); // ← remet actif immédiatement
     if (success) {
       // Affiche la pop-up avec les infos de connexion
@@ -142,6 +143,18 @@ export default function RegisterScreen() {
                 <TouchableOpacity onPress={() => setShowConfirmPassword(p => !p)}>
                   <Ionicons name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} style={styles.inputIcon} />
                 </TouchableOpacity>
+              </View>
+              {/* Champ pour le code de parrainage */}
+              <View style={styles.inputGroup}>
+                <Ionicons name="gift-outline" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Code de parrainage (Optionnel)"
+                  placeholderTextColor="#9CA3AF"
+                  autoCapitalize="characters"
+                  value={referralCode}
+                  onChangeText={setReferralCode}
+                />
               </View>
               
               <TouchableOpacity

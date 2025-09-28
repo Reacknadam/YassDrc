@@ -2,7 +2,7 @@
 import { Session } from '@supabase/supabase-js';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { deleteDoc, doc, onSnapshot, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDocs, limit, onSnapshot, query, setDoc, Timestamp, updateDoc, where } from 'firebase/firestore';
 import * as React from 'react';
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
@@ -22,13 +22,15 @@ export interface AppUser {
   city?: string;
   sellerUntil?: Timestamp;
   createdAt?: Timestamp;
+  referralCode?: string; // Le code de parrainage de cet utilisateur
+  referredBy?: string;   // L'UID du parrain
 }
 
 type AuthContextType = {
   authUser: AppUser | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
-  register: (name: string, email: string, password: string) => Promise<boolean>;
+  register: (name: string, email: string, password: string, referralCode?: string) => Promise<boolean>;
   logout: () => Promise<void>;
   deleteUserAccount: () => Promise<void>;
   signInWithGoogle: () => Promise<void>;
@@ -139,10 +141,34 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   /* ---------- REGISTER ---------- */
-  const register = async (name: string, email: string, password: string): Promise<boolean> => {
+  const register = async (name: string, email: string, password: string, referralCode?: string): Promise<boolean> => {
     setLoading(true);
     setError(null);
     try {
+      // 1. Générer un code de parrainage unique pour le nouvel utilisateur
+      const newReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+      // 2. Vérifier si le code de parrainage fourni est valide
+      let referrerId: string | null = null;
+      if (referralCode) {
+        const q = query(
+          collection(db, 'users'),
+          where('referralCode', '==', referralCode.trim()),
+          limit(1)
+        );
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          referrerId = querySnapshot.docs[0].id;
+          console.log(`Parrain trouvé: ${referrerId}`);
+        } else {
+          console.warn(`Code de parrainage "${referralCode}" non valide.`);
+          // Optionnel: retourner une erreur si le code est invalide
+          // setError("Le code de parrainage n'est pas valide.");
+          // return false;
+        }
+      }
+
+      // 3. Créer l'utilisateur dans Supabase Auth
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -151,6 +177,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (error) throw error;
       if (!data.user) throw new Error("L'utilisateur n'a pas été créé.");
 
+      // 4. Créer le document utilisateur dans Firestore avec les infos de parrainage
       const userRef = doc(db, 'users', data.user.id);
       const newUser: AppUser = {
         uid: data.user.id,
@@ -159,6 +186,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         createdAt: Timestamp.now(),
         isSellerVerified: false,
         city: 'Kinshasa',
+        referralCode: newReferralCode, // Assigner le nouveau code
+        ...(referrerId && { referredBy: referrerId }), // Ajouter le parrain si trouvé
       };
       await setDoc(userRef, newUser);
       return true;

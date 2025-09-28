@@ -2,7 +2,9 @@ import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
+import * as Clipboard from 'expo-clipboard';
 import SearchResultsModal from '../../components/modals/SearchResultsModal';
+
 import {
   addDoc,
   collection,
@@ -23,6 +25,7 @@ import {
   RefreshControl,
   SafeAreaView,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -46,6 +49,7 @@ import ProductDetailModal from '../../components/modals/ProductDetailModal';
 import ReviewModal from '../../components/modals/ReviewModal';
 import SellerDashboardModal from '../../components/modals/SellerDashboardModal';
 import SellerProductsModal from '../../components/modals/SellerProductsModal';
+import ShareModal from '../../components/modals/ShareModal';
 import OptimizedImage from '../../components/OptimizedImage';
 import ProductCard from '../../components/products/ProductCard';
 
@@ -270,6 +274,10 @@ const HomeScreenHeader: React.FC<{
 export default function HomeScreen() {
   const router = useRouter();
   const { authUser } = useAuth();
+
+  // State for Share Modal
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [productForShare, setProductForShare] = useState<Product | null>(null);
 
   // Fix 4: Le state 'suggestions' est déclaré une seule fois au niveau racine.
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -716,6 +724,46 @@ const normalize = (str: string) =>
     }
   };
 
+  // Handlers for Share Modal
+  const handleLongPressProduct = (product: Product) => {
+    setProductForShare(product);
+    setShareModalVisible(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  };
+
+  const handleShareProduct = async () => {
+    if (!productForShare) return;
+    setShareModalVisible(false);
+  
+    const url   = `https://api.israelntalu328.workers.dev/product?id=${productForShare.id}`;
+    const message = `${productForShare.name} - Découvrez ce produit sur Yass !\n${url}`;
+  
+    /* 3️⃣  Copie + alerte */
+    Clipboard.setString(message);
+    Alert.alert('Lien copié', 'Le lien a été copié dans le presse-papiers.');
+  
+    /* 4️⃣  Sheet natif (WhatsApp, Telegram, etc.) */
+    try {
+      const result = await Share.share({ message });
+      console.log('📤 résultat Share :', result);
+    } catch (err) {
+      console.warn('Share échoué :', err);
+    }
+  };
+
+  
+  
+  const handleReportProduct = () => {
+    if (!productForShare) return;
+    setShareModalVisible(false);
+    // In a real app, you would send this report to your backend
+    Alert.alert(
+      'Produit signalé',
+      `Merci d'avoir signalé "${productForShare.name}". Notre équipe va examiner la situation.`,
+      [{ text: 'OK' }]
+    );
+  };
+
   // Rendu
   const renderItem = ({ item, index }: { item: Product; index: number }) => (
     <ProductCard
@@ -725,6 +773,7 @@ const normalize = (str: string) =>
       onAddToCart={() => addToCart(item)}
       isFavorite={favorites.includes(item.id)}
       onToggleFavorite={() => toggleFavorite(item.id)}
+      onLongPress={handleLongPressProduct}
     />
   );
 
@@ -918,6 +967,13 @@ const normalize = (str: string) =>
           setCityFilter(city);
           setCityModalVisible(false);
         }}
+      />
+      <ShareModal
+        visible={shareModalVisible}
+        onClose={() => setShareModalVisible(false)}
+        onShare={handleShareProduct}
+        onReport={handleReportProduct}
+        productName={productForShare?.name || ''}
       />
     </SafeAreaView>
   );

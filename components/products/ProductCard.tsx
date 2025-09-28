@@ -17,6 +17,7 @@ interface ProductCardProps {
   onPress: (product: Product) => void;
   onAddToCart: (product: Product) => void;
   onToggleFavorite: (productId: string) => void;
+  onLongPress: (product: Product) => void; // Ajout pour le menu contextuel
   index: number;
 }
 
@@ -26,6 +27,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
   onPress,
   onAddToCart,
   onToggleFavorite,
+  onLongPress,
   index,
 }) => {
   // L'animation est conservée, elle est excellente !
@@ -59,7 +61,13 @@ const ProductCard: React.FC<ProductCardProps> = ({
         },
       ]}
     >
-      <TouchableOpacity style={styles.card} onPress={() => onPress(product)} activeOpacity={0.9}>
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => onPress(product)}
+        onLongPress={() => onLongPress(product)}
+        delayLongPress={500}
+        activeOpacity={0.9}
+      >
         <View style={styles.cardImageContainer}>
           {product.images && product.images.length > 0 ? (
             <OptimizedImage source={{ uri: product.images[0] }} style={styles.cardImage} />

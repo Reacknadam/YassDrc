@@ -32,6 +32,7 @@ import {
   Modal,
   SafeAreaView,
   ScrollView,
+  Share,
   StyleProp,
   StyleSheet,
   Switch,
@@ -119,6 +120,7 @@ interface UserProfile {
   city?: string;
   vacationMode?: boolean;
   subscriptionExpiry?: Timestamp;
+  referralCode?: string;
 }
 
 interface SellerForm {
@@ -1938,7 +1940,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({ visible, onClose, u
                 {cities.map((c) => (
                   <Picker.Item
                     key={c}
-                    label={`📍 ${c}`}
+                    label={` ${c}`}
                     value={c}
                     color="#333"
                     style={{ fontSize: 16 }}
@@ -2273,6 +2275,19 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ onLogout, onDeleteAccount, us
     updateProfileSettings({ notificationsEnabled: value });
   };
 
+  const shareReferralCode = async () => {
+    if (userProfile?.referralCode) {
+      try {
+        await Share.share({
+          message: `Utilise mon code de parrainage pour t'inscrire sur Yass et profite d'avantages exclusifs : ${userProfile.referralCode}`,
+          title: "Rejoins-moi sur Yass !",
+        });
+      } catch (error) {
+        Alert.alert("Erreur de partage", "Une erreur est survenue lors du partage de votre code.");
+      }
+    }
+  };
+
   return (
     <ScrollView style={styles.tabContentContainer}>
       <Text style={styles.sectionTitle}>Paramètres du Compte</Text>
@@ -2329,6 +2344,23 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ onLogout, onDeleteAccount, us
           value={notificationsEnabled}
         />
       </View>
+
+      <Text style={styles.sectionTitle}>Parrainage</Text>
+      <TouchableOpacity style={styles.settingItem} onPress={shareReferralCode}>
+        <View style={styles.settingLeft}>
+          <View style={styles.settingIcon}>
+            <Ionicons name="gift-outline" size={24} color="#6C63FF" />
+          </View>
+          <Text style={styles.settingText}>
+            Mon code :{' '}
+            <Text style={{ fontWeight: 'bold' }}>
+              {userProfile?.referralCode || 'N/A'}
+            </Text>
+          </Text>
+        </View>
+        <Ionicons name="share-social-outline" size={22} color="#ccc" />
+      </TouchableOpacity>
+
       <Text style={styles.sectionTitle}>Assistance</Text>
       <TouchableOpacity style={styles.settingItem} onPress={() => router.push('/(tabs)/help')}>
         <View style={styles.settingLeft}>
