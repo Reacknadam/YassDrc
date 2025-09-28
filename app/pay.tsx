@@ -1,4 +1,4 @@
-// PayScreen.tsx
+// pay.tsx
 import { Feather, Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';

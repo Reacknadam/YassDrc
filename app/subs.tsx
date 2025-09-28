@@ -1,4 +1,4 @@
-// app/subscribe.tsx
+// app/subs.tsx
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase/config';
 import { router } from 'expo-router';
